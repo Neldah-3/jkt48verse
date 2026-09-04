@@ -271,3 +271,33 @@ class EmailService:
             self.background_tasks.add_task(self._send_email, payload)
         else:
             await self._send_email(payload)
+
+    async def send_otp_email(self, email: str, code: str, username: str) -> bool:
+        """Kirim kode OTP verifikasi email JKT48Verse. Return True bila terkirim."""
+        if not self.config.resend_api_key:
+            logger.warning("RESEND_API_KEY kosong — OTP tidak dikirim via email (mode dev).")
+            return False
+        html = f"""
+        <div style="background:#f6f7f9;padding:48px 20px;font-family:'Segoe UI',Tahoma,sans-serif;">
+          <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;border:1px solid #e4e7ef;">
+            <div style="padding:28px 20px;text-align:center;border-bottom:1px solid #f1f5f9;">
+              <h1 style="color:#141821;margin:0;font-size:26px;font-weight:900;">JKT48<span style="color:#e01b3c;">Verse</span></h1>
+              <p style="color:#e01b3c;margin:4px 0 0;font-weight:800;font-size:10px;letter-spacing:.25em;text-transform:uppercase;">Verifikasi Email</p>
+            </div>
+            <div style="padding:36px 36px;text-align:center;">
+              <p style="color:#475569;line-height:1.8;margin:0 0 20px;">Halo <strong>{username}</strong>, gunakan kode berikut untuk memverifikasi email-mu:</p>
+              <div style="font-size:38px;font-weight:900;letter-spacing:12px;color:#e01b3c;background:rgba(224,27,60,.07);border-radius:14px;padding:18px 10px;margin:0 0 20px;">{code}</div>
+              <p style="color:#6a7280;font-size:13px;margin:0;">Kode berlaku 10 menit. Jangan bagikan kode ini kepada siapa pun.</p>
+            </div>
+          </div>
+        </div>
+        """
+        await self._send_email(
+            {
+                "from": self.config.email_from,
+                "to": [email],
+                "subject": f"{code} — Kode verifikasi JKT48Verse",
+                "html": html,
+            }
+        )
+        return True

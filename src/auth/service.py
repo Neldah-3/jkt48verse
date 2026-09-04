@@ -360,3 +360,43 @@ class AuthService:
         except Exception as e:
             logger.exception(f"Error resending verification email: {str(e)}")
             raise AuthOperationError()
+
+    # ------------------------------------------------------------------
+    # JKT48Verse: verifikasi email via OTP 6 digit
+    # ------------------------------------------------------------------
+    async def create_email_otp(self, user_id: str, email: str, username: str) -> dict:
+        """Buat OTP 6 digit (berlaku 10 menit), kirim via email bila Resend aktif."""
+        import secrets as _secrets
+
+        code = f"{_secrets.randbelow(1_000_000):06d}"
+        code_hash = self.hash_token(code)
+        # 10 menit = 1/6 jam
+        await self.security_service.save_token(user_id, code_hash, "otp", 10 / 60)
+        sent = await self.email_service.send_otp_email(email, code, username)
+        return {"code": code, "sent": sent}
+
+    async def verify_email_otp(self, email: str, code: str) -> tuple[bool, str]:
+        """Verifikasi kode OTP → tandai email terverifikasi."""
+        user = await self.get_user(email)
+        if not user:
+            return False, "Kode OTP tidak valid atau kedaluwarsa."
+        if user.isEmailVerified:
+            return True, "Email sudah terverifikasi. Silakan login."
+        code_hash = self.hash_token((code or "").strip())
+        token_data = await self.security_service.verify_token(code_hash, "otp")
+        if not token_data or token_data.get("userId") != user.userId:
+            return False, "Kode OTP tidak valid atau kedaluwarsa."
+        await self.security_service.delete_token(code_hash, "otp")
+        await self.user_repo.set_email_verified(user.userId)
+        return True, "Email berhasil diverifikasi. Silakan login."
+
+    async def resend_email_otp(self, email: str) -> Optional[dict]:
+        """Kirim ulang OTP. Bila Resend belum diatur & ENV=dev → kembalikan devCode."""
+        user = await self.get_user(email)
+        if not user or user.isEmailVerified:
+            return None
+        result = await self.create_email_otp(user.userId, user.email, user.username)
+        if not result["sent"] and self.config.is_env_dev:
+            logger.info(f"[DEV] OTP untuk {email}: {result['code']}")
+            return {"devCode": result["code"]}
+        return {}

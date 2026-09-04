@@ -1,13 +1,9 @@
-import { db } from "@/db";
-import { sql } from "drizzle-orm";
+import { apiGet } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    await db.execute(sql`select 1`);
-    return Response.json({ ok: true });
-  } catch {
-    return Response.json({ ok: false }, { status: 500 });
-  }
+  const r = await apiGet<{ status?: string }>("/health", { status: "down" });
+  const ok = r.status === "ok";
+  return Response.json({ ok }, { status: ok ? 200 : 500 });
 }

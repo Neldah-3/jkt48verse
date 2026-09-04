@@ -18,8 +18,15 @@ def get_real_ip(request: Request) -> str:
     return request.client.host
 
 
+def _storage_uri() -> str | None:
+    """slowapi (limits) storage. memory:// → storage in-process (default library)."""
+    if config.redis_url.startswith("memory://"):
+        return None
+    return config.redis_url
+
+
 limiter = Limiter(
     key_func=get_real_ip,
     default_limits=[f"{config.default_requests_per_minute}/minute"],
-    storage_uri=config.redis_url,
+    storage_uri=_storage_uri(),
 )

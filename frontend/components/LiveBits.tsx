@@ -44,7 +44,7 @@ function Player({ item, compact, onRemove, registerVideo }: { item: LiveItem | n
           const hls = new Hls();
           hls.loadSource(item.streamUrl);
           hls.attachMedia(el);
-          hls.on(Hls.Events.ERROR, (_e, d) => { if (d.fatal) setErr("Stream tidak dapat dimuat (CORS/geo-block). Buka di platform asli."); });
+          hls.on(Hls.Events.ERROR, (_e: unknown, d: { fatal: boolean }) => { if (d.fatal) setErr("Stream tidak dapat dimuat (CORS/geo-block). Buka di platform asli."); });
         } else {
           el.src = item.streamUrl;
         }

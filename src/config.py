@@ -16,16 +16,9 @@ class Settings(BaseSettings):
     DB_MAX_POOL_SIZE: int = 10
     DB_POOL_TIMEOUT: int = 30
 
-    REDIS_URL: SecretStr
-
-    OAUTHLIB_INSECURE_TRANSPORT: bool = False
-
-    GOOGLE_CLIENT_ID: str = ""
-    GOOGLE_CLIENT_SECRET: SecretStr = SecretStr("")
-    GOOGLE_REDIRECT_URI: str = ""
-    GITHUB_CLIENT_ID: str = ""
-    GITHUB_CLIENT_SECRET: SecretStr = SecretStr("")
-    GITHUB_REDIRECT_URI: str = ""
+    # "memory://" = fallback in-process untuk development tanpa server Redis.
+    # Produksi wajib redis:// atau rediss:// (mis. Upstash).
+    REDIS_URL: SecretStr = SecretStr("memory://")
 
     IDN_LIVE_PLUS_API_KEY: Optional[SecretStr] = None
     IDN_AUTH_TOKEN: Optional[SecretStr] = None
@@ -52,6 +45,26 @@ class Settings(BaseSettings):
     LIVE_PROXY_REQUESTS_PER_MINUTE: int = 1500
     LIVE_CACHE_TTL_SECONDS: int = 10
 
+    # --- JKT48Verse additions ---
+    # AI Search via provider yang kompatibel OpenAI API (default: OpenRouter)
+    LLM_API_KEY: SecretStr = SecretStr("")
+    LLM_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
+    LLM_TEMPERATURE: float = 0.3
+    LLM_SYSTEM_PROMPT: str = (
+        "Kamu asisten komunitas fans JKT48 (JKT48Verse). Jawab hanya seputar JKT48, "
+        "48 Group, dan budaya idol. Jika pertanyaan di luar topik, tolak dengan sopan. "
+        "Jawab ringkas dalam Bahasa Indonesia. Gunakan konteks database bila relevan."
+    )
+    # Kuota AI Search per hari (WIB): login / guest
+    AI_SEARCH_DAILY_LIMIT_USER: int = 20
+    AI_SEARCH_DAILY_LIMIT_GUEST: int = 3
+
+    # Seed akun admin (dipakai scripts/seed.py)
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_EMAIL: str = "admin@jkt48verse.local"
+    ADMIN_PASSWORD: SecretStr = SecretStr("AdminJKT48verse2026")
+
     LOG_LEVEL: str = "INFO"
     LOG_DESTINATION: str = "console"
     LOG_PATH: str = "/tmp/mypage48/"
@@ -71,6 +84,8 @@ class Settings(BaseSettings):
                     )
             if len(self.SECRET_KEY.get_secret_value()) < 32:
                 raise ValueError("SECRET_KEY must be at least 32 characters long in production")
+            if self.redis_url.startswith("memory://"):
+                raise ValueError("REDIS_URL cannot be 'memory://' in production — use a real Redis (e.g. Upstash rediss://)")
         return self
 
     @property
@@ -118,7 +133,7 @@ class Settings(BaseSettings):
 
     @property
     def oauthlib_insecure_transport(self) -> bool:
-        return self.OAUTHLIB_INSECURE_TRANSPORT
+        return False
 
     @computed_field
     @property
@@ -142,28 +157,44 @@ class Settings(BaseSettings):
         return self.REFRESH_TOKEN_MAX_AGE_DAYS
 
     @property
-    def google_client_id(self) -> str:
-        return self.GOOGLE_CLIENT_ID
+    def admin_username(self) -> str:
+        return self.ADMIN_USERNAME
 
     @property
-    def google_client_secret(self) -> str:
-        return self.GOOGLE_CLIENT_SECRET.get_secret_value()
+    def admin_email(self) -> str:
+        return self.ADMIN_EMAIL
 
     @property
-    def google_redirect_uri(self) -> str:
-        return self.GOOGLE_REDIRECT_URI
+    def admin_password(self) -> SecretStr:
+        return self.ADMIN_PASSWORD
 
     @property
-    def github_client_id(self) -> str:
-        return self.GITHUB_CLIENT_ID
+    def llm_api_key(self) -> str:
+        return self.LLM_API_KEY.get_secret_value()
 
     @property
-    def github_client_secret(self) -> str:
-        return self.GITHUB_CLIENT_SECRET.get_secret_value()
+    def llm_base_url(self) -> str:
+        return self.LLM_BASE_URL
 
     @property
-    def github_redirect_uri(self) -> str:
-        return self.GITHUB_REDIRECT_URI
+    def llm_model(self) -> str:
+        return self.LLM_MODEL
+
+    @property
+    def llm_temperature(self) -> float:
+        return self.LLM_TEMPERATURE
+
+    @property
+    def llm_system_prompt(self) -> str:
+        return self.LLM_SYSTEM_PROMPT
+
+    @property
+    def ai_search_daily_limit_user(self) -> int:
+        return self.AI_SEARCH_DAILY_LIMIT_USER
+
+    @property
+    def ai_search_daily_limit_guest(self) -> int:
+        return self.AI_SEARCH_DAILY_LIMIT_GUEST
 
     @property
     def idn_live_plus_api_key(self) -> Optional[str]:

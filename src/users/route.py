@@ -1,115 +1,95 @@
-from typing import Optional
+"""Users: registrasi akun JKT48Verse (email + password + verifikasi OTP)."""
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, EmailStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.schemas import UserCurrent
-from src.dependencies import (
-    get_current_user,
-    get_user_service,
-    require_admin,
-    require_csrf_protection,
-)
+from src.auth.service import AuthService
+from src.database import get_session
+from src.dependencies import get_auth_service
 from src.limiter import limiter
+from src.config import config
 from src.logging_config import create_logger
-from src.users.schemas import (
-    BatchAddOshiRequest,
-    MessageResponse,
-    ProfileFullResponse,
-    PublicUserResponse,
-    RemoveOshiRequest,
-    UpdateProfileRequest,
-    UpdatePublicStatusRequest,
-    UserCreatedWithEmail,
-    UserCreateRequest,
-    UserCreateResponse,
-    UserListResponse,
-)
-from src.users.service import UserService
-
-logger = create_logger("users", __name__)
+from src.users.service import UserService, UsernameTakenError, EmailTakenError
 
 router = APIRouter()
+logger = create_logger("users_route", __name__)
 
 
-@router.get("/users", response_model=UserListResponse)
-async def get_all_users(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    search: Optional[str] = Query(None),
-    _: UserCurrent = Depends(require_admin),
-    service: UserService = Depends(get_user_service),
-):
-    return await service.get_all_users(page, limit, search)
+class SignupRequest(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
 
 
-@router.post("/users/signup", status_code=201, response_model=UserCreateResponse)
-@limiter.limit("5/day", override_defaults=True)
+class SignupResponse(BaseModel):
+    userId: str
+    username: str
+    email: str
+    message: str
+    devCode: str | None = None
+
+
+@router.post("/users/signup", status_code=201, response_model=SignupResponse)
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
 async def signup(
     request: Request,
-    user: UserCreateRequest,
-    user_service: UserService = Depends(get_user_service),
+    data: SignupRequest,
+    session: AsyncSession = Depends(get_session),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
-    result = await user_service.create_user(user)
-    if isinstance(result, UserCreatedWithEmail):
-        logger.info("User created successfully and verification email sent")
-    else:
-        logger.info("User created successfully")
-    return result
+    import re as _re
 
+    username = data.username.strip()
+    if not _re.fullmatch(r"[a-zA-Z0-9]{3,20}", username):
+        return SignupResponse(
+            userId="", username=username, email=data.email,
+            message="Username 3–20 karakter alfanumerik.",
+        )
+    if _re.match(r"^(admin|mod|moderator)", username, _re.IGNORECASE):
+        return SignupResponse(
+            userId="", username=username, email=data.email,
+            message="Username tidak tersedia.",
+        )
+    if len(data.password) < 8:
+        return SignupResponse(
+            userId="", username=username, email=data.email,
+            message="Password minimal 8 karakter.",
+        )
 
-@router.get("/users/profile", response_model=ProfileFullResponse)
-async def user_profile(
-    current_user: UserCurrent = Depends(get_current_user),
-    user_service: UserService = Depends(get_user_service),
-):
-    return await user_service.get_profile_full(current_user)
+    service = UserService(session)
+    try:
+        user = await service.create_user(
+            username=username, email=data.email.lower(), password=data.password
+        )
+    except UsernameTakenError:
+        return SignupResponse(userId="", username=username, email=data.email, message="Username sudah dipakai.")
+    except EmailTakenError:
+        return SignupResponse(userId="", username=username, email=data.email, message="Email sudah terdaftar.")
 
+    # notifikasi selamat datang
+    from src.models import Notification
 
-@router.post("/users/oshi/batch-add", status_code=200, response_model=MessageResponse)
-async def batch_add_oshi(
-    request: BatchAddOshiRequest,
-    current_user: UserCurrent = Depends(get_current_user),
-    _=Depends(require_csrf_protection),
-    user_service: UserService = Depends(get_user_service),
-):
-    return await user_service.batch_add_oshi(current_user.userId, request.oshiIds)
-
-
-@router.post("/users/oshi/remove", status_code=200, response_model=MessageResponse)
-async def remove_oshi(
-    request: RemoveOshiRequest,
-    current_user: UserCurrent = Depends(get_current_user),
-    _=Depends(require_csrf_protection),
-    user_service: UserService = Depends(get_user_service),
-):
-    return await user_service.remove_oshi(current_user.userId, request.oshiId)
-
-
-@router.post("/users/public-status", status_code=200, response_model=MessageResponse)
-async def update_public_status(
-    request: UpdatePublicStatusRequest,
-    current_user: UserCurrent = Depends(get_current_user),
-    _=Depends(require_csrf_protection),
-    user_service: UserService = Depends(get_user_service),
-):
-    return await user_service.update_public_status(
-        current_user.userId, request.isPublic, request.publicYear
+    session.add(
+        Notification(
+            user_seq=user.seq,
+            type="SYSTEM",
+            title="Selamat datang di JKT48Verse!",
+            body="Atur oshi-mu di halaman Akun agar Live Alert & Birthday Alert aktif.",
+            href="/account",
+        )
     )
 
+    otp = await auth_service.create_email_otp(user.user_id, user.email, user.username)
+    dev_code = None
+    if not otp["sent"] and config.is_env_dev:
+        logger.info(f"[DEV] OTP untuk {user.email}: {otp['code']}")
+        dev_code = otp["code"]
 
-@router.patch("/users/profile", status_code=200, response_model=MessageResponse)
-async def update_profile(
-    request: UpdateProfileRequest,
-    current_user: UserCurrent = Depends(get_current_user),
-    _=Depends(require_csrf_protection),
-    user_service: UserService = Depends(get_user_service),
-):
-    return await user_service.update_profile(current_user.userId, request)
-
-
-@router.get("/u/{username}", response_model=PublicUserResponse)
-async def get_public_profile(
-    username: str,
-    user_service: UserService = Depends(get_user_service),
-):
-    return await user_service.get_public_profile(username)
+    return SignupResponse(
+        userId=user.user_id,
+        username=user.username,
+        email=user.email,
+        message="Akun dibuat. Kode OTP verifikasi telah dikirim ke email-mu.",
+        devCode=dev_code,
+    )
