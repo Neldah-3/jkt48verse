@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, model_serializer, model_validator
+from pydantic import BaseModel, field_validator, model_serializer, model_validator
 
 from src.auth.http_exceptions import PasswordPolicyViolation, PasswordsNotMatch
 from src.utils import validate_password_strength
@@ -59,6 +59,14 @@ class UserLoginBase(BaseModel):
     isAdmin: bool = False
     isEmailVerified: bool = False
     createdAt: datetime | None = None
+
+    @field_validator("oshiIds", "memberId", mode="before")
+    @classmethod
+    def _coerce_str(cls, v):
+        # oshi/memberId bisa tersimpan sebagai int di DB — paksa ke string
+        if isinstance(v, list):
+            return [str(x) for x in v]
+        return None if v is None else str(v)
 
     @model_serializer(mode="wrap")
     def exclude_false_isAdmin(self, handler):

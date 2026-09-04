@@ -2,17 +2,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Avatar, Disclaimer, Icon, PageHead, Tag } from "@/components/ui";
 import { getViewer } from "@/lib/auth";
-import { listMembers, userOshiList } from "@/lib/data";
+import { accountSummary, listMembers, userOshiList } from "@/lib/data";
 import { setOshiAction, updateProfileAction } from "@/app/actions";
-import { db } from "@/db";
-import { activityLogs, gameScores } from "@/db/schema";
-import { count, eq, sql } from "drizzle-orm";
 export const dynamic = "force-dynamic";
 
 export default async function AccountPage() {
   const v = await getViewer();
   if (!v.userId || !v.user) redirect("/auth/login?next=/account");
-  const [oshi, members, [g], [a]] = await Promise.all([userOshiList(v.userId), listMembers({ status: "active" }), db.select({ n: count(), total: sql<number>`coalesce(sum(${gameScores.score}),0)::int` }).from(gameScores).where(eq(gameScores.userId, v.userId)), db.select({ n: count() }).from(activityLogs).where(eq(activityLogs.userId, v.userId))]);
+  const [oshi, members, sum] = await Promise.all([userOshiList(v.userId), listMembers({ status: "active" }), accountSummary()]);
+  const g = { n: sum.gameSessions, total: v.user?.points ?? 0 };
+  const a = { n: sum.interactions };
   const kami = oshi.find((o) => o.rank === 0);
   const others = oshi.filter((o) => o.rank > 0);
   return (
@@ -45,7 +44,7 @@ export default async function AccountPage() {
         <div className="c4 flex flex-col gap-3.5">
           <div className="card w stat"><div className="lbl"><Icon name="trophy" size={13} /> Total poin</div><div className="num tabular">{v.user.points.toLocaleString("id-ID")}</div><div className="muted text-[11.5px]">{g.n} sesi game · streak 🔥 {v.user.streak} hari</div></div>
           <div className="card w stat"><div className="lbl"><Icon name="zap" size={13} /> Interaksi</div><div className="num tabular">{a.n}</div><Link href="/account/activity" className="link">Lihat riwayat ›</Link></div>
-          <div className="card w"><h3 className="text-[13px] font-bold">Status akun</h3><div className="flex flex-col gap-1 text-[12.5px]"><span>Role: <Tag kind="status" value={v.role.toLowerCase()} /></span>{v.isMuted && <span className="text-warn">Di-mute hingga {v.user.mutedUntil?.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</span>}{!v.isMuted && !v.isBlocked && <span style={{ color: "var(--ok)" }}>Aktif · tidak ada sanksi</span>}</div></div>
+          <div className="card w"><h3 className="text-[13px] font-bold">Status akun</h3><div className="flex flex-col gap-1 text-[12.5px]"><span>Role: <Tag kind="status" value={v.role.toLowerCase()} /></span>{v.isMuted && <span className="text-warn">Di-mute hingga {v.user.mutedUntil ? new Date(v.user.mutedUntil).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : ""} WIB</span>}{!v.isMuted && !v.isBlocked && <span style={{ color: "var(--ok)" }}>Aktif · tidak ada sanksi</span>}</div></div>
         </div>
       </div>
       <Disclaimer />

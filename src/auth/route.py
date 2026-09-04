@@ -1,10 +1,9 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi_sso.sso.github import GithubSSO
-from fastapi_sso.sso.google import GoogleSSO
 
 from src.auth.constants import (
     REFRESH_TOKEN_COOKIE_KEY,
@@ -37,16 +36,11 @@ from src.auth.service import AuthService
 from src.config import Settings, config
 from src.dependencies import (
     get_auth_service,
-    get_github_sso,
-    get_google_sso,
     get_settings,
-    get_user_service,
     require_csrf_protection,
 )
 from src.limiter import limiter
 from src.logging_config import create_logger
-from src.users.schemas import ProviderUserCreateRequest
-from src.users.service import UserService
 
 
 def _extract_request_info(request: Request):
@@ -141,6 +135,30 @@ async def signin_with_email_and_password(
     """
 
     user = await auth_service.authenticate_user(form_data.username, form_data.password)
+
+    # Blokir khusus JKT48Verse (sanksi moderator/admin)
+    from sqlalchemy import func as sa_func, select as sa_select
+
+    from src.database import database_instance
+    from src.models import User as _UserModel
+
+    async with database_instance.session_factory() as _s:
+        _row = (
+            await _s.execute(
+                sa_select(_UserModel).where(
+                    sa_func.lower(_UserModel.username) == form_data.username.lower()
+                )
+            )
+        ).scalar_one_or_none()
+    if _row is not None and _row.blocked_until and _row.blocked_until > datetime.now(timezone.utc):
+        _until = _row.blocked_until.astimezone(
+            timezone(offset=__import__("datetime").timedelta(hours=7))
+        ).strftime("%d %b %Y %H:%M")
+        return JSONResponse(
+            status_code=403,
+            content={"detail": f"Akun diblokir hingga {_until} WIB. Alasan: {_row.block_reason or '-'}"},
+        )
+
     access_token = auth_service.create_access_token(data={"sub": user.userId})
 
     device, ip, browser, user_agent = _extract_request_info(request)
@@ -239,114 +257,6 @@ async def refresh_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/auth/google/signin")
-async def signin_with_google(google_sso: GoogleSSO = Depends(get_google_sso)):
-    """
-    Initiate Google OAuth2 sign-in flow. Redirects user to Google login page.
-
-    Returns:
-        RedirectResponse: Redirect to Google OAuth2 login.
-    """
-    with google_sso:
-        return await google_sso.get_login_redirect(
-            params={"prompt": "consent", "access_type": "offline"}
-        )
-
-
-@router.get("/auth/google/callback")
-async def google_auth_callback(
-    request: Request,
-    response: Response,
-    auth_service: AuthService = Depends(get_auth_service),
-    user_service: UserService = Depends(get_user_service),
-    google_sso: GoogleSSO = Depends(get_google_sso),
-    config: Settings = Depends(get_settings),
-):
-    """
-    Google OAuth2 callback endpoint. Handles user info from Google and issues access token.
-
-    Parameters:
-        request (Request): FastAPI request object.
-        request (Response): FastAPI response object (used to set cookies).
-
-    Returns:
-        RedirectResponse: Redirect to frontend with access token as query param.
-    """
-    with google_sso:
-        user = await google_sso.verify_and_process(request)
-        check_user = await auth_service.authenticate_user(
-            username_or_email=user.email, provider=user.provider
-        )
-        if not check_user:
-            user_provider = auth_service.extract_user_provider(user)
-            user_provider = ProviderUserCreateRequest(**user_provider)
-            await user_service.create_user_provider(user_provider)
-        access_token = auth_service.create_access_token(data={"sub": user.email})
-
-        device, ip, browser, user_agent = _extract_request_info(request)
-        refresh_token = await auth_service.register_refresh_token_activity(
-            user.email, device, ip, browser, user_agent
-        )
-
-        _set_auth_cookies(response, refresh_token, config)
-        _set_access_token_cookie(response, access_token, config)
-        redirect_url = f"{config.frontend_url}/auth/callback"
-        return RedirectResponse(url=redirect_url, headers=response.headers)
-
-
-@router.get("/auth/github/signin")
-async def signin_with_github(github_sso: GithubSSO = Depends(get_github_sso)):
-    """
-    Initiate GitHub OAuth2 sign-in flow. Redirects user to GitHub login page.
-
-    Returns:
-        RedirectResponse: Redirect to GitHub OAuth2 login.
-    """
-    with github_sso:
-        return await github_sso.get_login_redirect()
-
-
-@router.get("/auth/github/callback")
-async def github_auth_callback(
-    request: Request,
-    response: Response,
-    auth_service: AuthService = Depends(get_auth_service),
-    user_service: UserService = Depends(get_user_service),
-    github_sso: GithubSSO = Depends(get_github_sso),
-    config: Settings = Depends(get_settings),
-):
-    """
-    GitHub OAuth2 callback endpoint. Handles user info from GitHub and issues access token.
-
-    Parameters:
-        request (Request): FastAPI request object.
-        request (Response): FastAPI response object (used to set cookies).
-
-    Returns:
-        RedirectResponse: Redirect to frontend with access token as query param.
-    """
-    with github_sso:
-        user = await github_sso.verify_and_process(request)
-        check_user = await auth_service.authenticate_user(
-            username_or_email=user.email, provider=user.provider
-        )
-        if not check_user:
-            user_provider = auth_service.extract_user_provider(user)
-            user_provider = ProviderUserCreateRequest(**user_provider)
-            await user_service.create_user_provider(user_provider)
-        access_token = auth_service.create_access_token(data={"sub": user.email})
-
-        device, ip, browser, user_agent = _extract_request_info(request)
-        refresh_token = await auth_service.register_refresh_token_activity(
-            user.email, device, ip, browser, user_agent
-        )
-
-        _set_auth_cookies(response, refresh_token, config)
-        _set_access_token_cookie(response, access_token, config)
-        redirect_url = f"{config.frontend_url}/auth/callback"
-        return RedirectResponse(url=redirect_url, headers=response.headers)
-
-
 @router.post("/auth/logout", response_model=LogoutResponse)
 async def logout(
     request: Request,
@@ -383,6 +293,76 @@ async def logout(
         domain=config.cookie_domain,
     )
     return LogoutResponse(message=Info.LOGOUT_SUCCESS)
+
+
+
+# ---- JKT48Verse: viewer saat ini (dipakai frontend Next.js) ----
+@router.get("/auth/me")
+async def current_viewer(
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    from src.verse.deps import build_viewer, GUEST_VIEWER
+    from src.database import database_instance
+
+    token = request.cookies.get("token")
+    if not token:
+        header = request.headers.get("authorization")
+        if header and header.lower().startswith("bearer "):
+            token = header.split(" ", 1)[1]
+    if not token:
+        return GUEST_VIEWER
+    try:
+        token_data = auth_service.verify_access_token(token)
+    except Exception:
+        return GUEST_VIEWER
+    from sqlalchemy import select
+    from src.models import User
+
+    async with database_instance.session_factory() as session:
+        result = await session.execute(select(User).where(User.user_id == token_data.username))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return GUEST_VIEWER
+        return build_viewer(user)
+
+
+class OtpVerifyRequest(BaseModel):
+    email: str
+    code: str
+
+
+@router.post("/auth/verify-otp")
+async def verify_otp_endpoint(
+    request_data: OtpVerifyRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+    config: Settings = Depends(get_settings),
+):
+    """Verifikasi email memakai kode OTP 6 digit."""
+    success, message = await auth_service.verify_email_otp(request_data.email, request_data.code)
+    if success:
+        return {"message": message, "verified": True}
+    return JSONResponse(status_code=400, content={"message": message, "verified": False})
+
+
+class OtpResendRequest(BaseModel):
+    email: str
+
+
+@router.post("/auth/resend-otp")
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
+async def resend_otp_endpoint(
+    request: Request,
+    request_data: OtpResendRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+    config: Settings = Depends(get_settings),
+):
+    """Kirim ulang kode OTP verifikasi email."""
+    result = await auth_service.resend_email_otp(request_data.email)
+    payload: dict = {"message": "Jika email terdaftar dan belum terverifikasi, kode OTP telah dikirim."}
+    if isinstance(result, dict) and result.get("devCode"):
+        payload["devCode"] = result["devCode"]
+    return payload
 
 
 # Email Verification Endpoints

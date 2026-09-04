@@ -1,274 +1,413 @@
 import "server-only";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { db } from "@/db";
-import {
-  members, news, schedules, scheduleMembers, chatMessages, chatReactions, gameScores, users,
-  encyclopedia, glossary, motivations, notifications, bookmarks, scheduleReminders, birthdayWishes, userOshi,
-} from "@/db/schema";
-import { seedIfEmpty } from "@/db/seed";
-import { wibParts, wibMidnight, wibDateKey } from "@/lib/time";
 
-export async function ready() {
-  await seedIfEmpty();
-}
+import { apiGet } from "@/lib/api";
+
+/**
+ * Lapisan data JKT48Verse — semua fungsi memanggil API FastAPI.
+ * Tanda tangan fungsi dipertahankan sama dengan implementasi Drizzle lama
+ * agar seluruh halaman tidak perlu berubah.
+ */
+
+// ---------- Tipe (bentuk baris identik dengan schema lama) ----------
+export type Member = {
+  id: number;
+  slug: string;
+  name: string;
+  nickname: string;
+  generation: number | null;
+  status: string;
+  team: string | null;
+  birthDate: string | null;
+  height: string | null;
+  bloodType: string | null;
+  horoscope: string | null;
+  jikoshoukai: string | null;
+  hobbies: string | null;
+  trivia: string | null;
+  socials: Record<string, string>;
+  showBirthday: boolean;
+  createdAt: Date;
+};
+
+export type ScheduleRow = {
+  id: number;
+  title: string;
+  type: string;
+  startAt: Date;
+  endAt: Date | null;
+  location: string | null;
+  mapUrl: string | null;
+  setlist: string | null;
+  ticketStatus: string;
+  ticketUrl: string | null;
+  description: string | null;
+  flag: string | null;
+  createdAt: Date;
+  memberIds?: number[];
+};
+
+export type NewsItem = {
+  id: number;
+  slug: string;
+  title: string;
+  summary: string;
+  body: string;
+  category: string;
+  isHighlighted: boolean;
+  views: number;
+  publishedAt: Date;
+};
+
+export type Wish = {
+  id: number;
+  memberId: number;
+  userId: number;
+  username: string;
+  message: string;
+  year: number;
+  createdAt: Date;
+};
+
+export type ChatRow = {
+  id: number;
+  userId: number | null;
+  username: string;
+  role: string;
+  avatarSeed: number;
+  body: string;
+  parentId: number | null;
+  isPinned: boolean;
+  isHidden: boolean;
+  createdAt: string;
+  reactions: { emoji: string; n: number; mine: boolean }[];
+  parent: { id: number; username: string; body: string } | null;
+};
+
+export type EncyclopediaRow = {
+  id: number;
+  slug: string;
+  title: string;
+  content: string;
+  sortOrder: number;
+  updatedAt: Date;
+};
+
+export type MotivationRow = {
+  id: number;
+  quote: string;
+  author: string | null;
+  template: string;
+  isPublished: boolean;
+  featuredOn: string | null;
+  createdAt: Date;
+};
+
+type ApiMember = Omit<Member, "createdAt"> & { createdAt: string | null };
+type ApiSchedule = Omit<ScheduleRow, "startAt" | "endAt" | "createdAt"> & { startAt: string; endAt: string | null; createdAt: string | null };
+type ApiNews = Omit<NewsItem, "publishedAt"> & { publishedAt: string };
+type ApiWish = Omit<Wish, "createdAt"> & { createdAt: string };
+type ApiEncyclopedia = Omit<EncyclopediaRow, "updatedAt"> & { updatedAt: string | null };
+type ApiMotivation = Omit<MotivationRow, "createdAt"> & { createdAt: string };
+
+const D = (v: string | null | undefined) => (v ? new Date(v) : new Date());
+
+const toMember = (m: ApiMember): Member => ({ ...m, createdAt: D(m.createdAt) });
+const toSchedule = (s: ApiSchedule): ScheduleRow => ({ ...s, startAt: D(s.startAt), endAt: s.endAt ? new Date(s.endAt) : null, createdAt: D(s.createdAt) });
+const toNews = (n: ApiNews): NewsItem => ({ ...n, publishedAt: new Date(n.publishedAt) });
+const toWish = (w: ApiWish): Wish => ({ ...w, createdAt: new Date(w.createdAt) });
+const toEnc = (e: ApiEncyclopedia): EncyclopediaRow => ({ ...e, updatedAt: D(e.updatedAt) });
+const toMot = (m: ApiMotivation): MotivationRow => ({ ...m, createdAt: new Date(m.createdAt) });
 
 // ---------- Members ----------
-export async function listMembers(opts: { status?: string; generation?: number; sort?: string } = {}) {
-  await ready();
-  const conds = [];
-  if (opts.status === "active" || !opts.status) conds.push(inArray(members.status, ["regular", "trainee"]));
-  else if (opts.status !== "all") conds.push(eq(members.status, opts.status));
-  if (opts.generation) conds.push(eq(members.generation, opts.generation));
-  const order = opts.sort === "generation" ? [asc(members.generation), asc(members.name)] : opts.sort === "status" ? [asc(members.status), asc(members.name)] : [asc(members.name)];
-  return db.select().from(members).where(conds.length ? and(...conds) : undefined).orderBy(...order);
+export async function listMembers(opts: { status?: string; generation?: number; sort?: string } = {}): Promise<Member[]> {
+  const p = new URLSearchParams();
+  if (opts.status) p.set("status", opts.status);
+  if (opts.generation) p.set("generation", String(opts.generation));
+  if (opts.sort) p.set("sort", opts.sort);
+  const q = p.toString();
+  const rows = await apiGet<ApiMember[]>(`/members${q ? `?${q}` : ""}`, []);
+  return rows.map(toMember);
 }
 
-export async function getMemberBySlug(slug: string) {
-  await ready();
-  const [m] = await db.select().from(members).where(eq(members.slug, slug));
-  return m ?? null;
+export async function getMemberBySlug(slug: string): Promise<Member | null> {
+  const m = await apiGet<ApiMember | null>(`/members/slug/${encodeURIComponent(slug)}`, null);
+  return m ? toMember(m) : null;
 }
 
-export async function memberSchedules(memberId: number) {
-  return db
-    .select({ s: schedules })
-    .from(scheduleMembers)
-    .innerJoin(schedules, eq(schedules.id, scheduleMembers.scheduleId))
-    .where(and(eq(scheduleMembers.memberId, memberId), gte(schedules.startAt, new Date())))
-    .orderBy(asc(schedules.startAt))
-    .limit(10)
-    .then((r) => r.map((x) => x.s));
+export async function memberSchedules(memberId: number): Promise<ScheduleRow[]> {
+  const rows = await apiGet<ApiSchedule[]>(`/members/id/${memberId}/schedules`, []);
+  return rows.map(toSchedule);
 }
 
-export async function memberNews(name: string) {
-  const first = name.split(" ")[0];
-  return db.select().from(news).where(or(ilike(news.body, `%${first}%`), ilike(news.title, `%${first}%`))).orderBy(desc(news.publishedAt)).limit(10);
+export async function memberNews(name: string): Promise<NewsItem[]> {
+  const rows = await apiGet<ApiNews[]>(`/news?q=${encodeURIComponent(name)}&limit=10`, []);
+  return rows.map(toNews);
 }
 
 // ---------- Schedule ----------
-export async function upcomingSchedules(limit = 5, type?: string) {
-  await ready();
-  const conds = [gte(schedules.endAt, new Date())];
-  if (type && type !== "all") conds.push(eq(schedules.type, type));
-  return db.select().from(schedules).where(and(...conds)).orderBy(asc(schedules.startAt)).limit(limit);
+export async function upcomingSchedules(limit = 5, type?: string): Promise<ScheduleRow[]> {
+  const p = new URLSearchParams({ limit: String(limit) });
+  if (type) p.set("type", type);
+  const rows = await apiGet<ApiSchedule[]>(`/schedules/upcoming?${p}`, []);
+  return rows.map(toSchedule);
 }
 
-export async function schedulesInRange(from: Date, to: Date, type?: string) {
-  await ready();
-  const conds = [gte(schedules.startAt, from), lt(schedules.startAt, to)];
-  if (type && type !== "all") conds.push(eq(schedules.type, type));
-  return db.select().from(schedules).where(and(...conds)).orderBy(asc(schedules.startAt));
+export async function schedulesInRange(from: Date, to: Date, type?: string): Promise<ScheduleRow[]> {
+  const p = new URLSearchParams({ start: from.toISOString(), end: to.toISOString() });
+  if (type) p.set("type", type);
+  const rows = await apiGet<ApiSchedule[]>(`/schedules/range?${p}`, []);
+  return rows.map(toSchedule);
 }
 
-export async function getSchedule(id: number) {
-  await ready();
-  const [s] = await db.select().from(schedules).where(eq(schedules.id, id));
+export async function getSchedule(id: number): Promise<(ScheduleRow & { lineup: Member[]; related: NewsItem[] }) | null> {
+  const s = await apiGet<(ApiSchedule & { lineup: ApiMember[]; related: ApiNews[] }) | null>(`/schedules/${id}`, null);
   if (!s) return null;
-  const lineup = await db
-    .select({ m: members })
-    .from(scheduleMembers)
-    .innerJoin(members, eq(members.id, scheduleMembers.memberId))
-    .where(eq(scheduleMembers.scheduleId, id))
-    .orderBy(asc(members.name));
-  const related = await db.select().from(news).where(ilike(news.title, `%${s.title.split(" ")[0]}%`)).limit(3);
-  return { ...s, lineup: lineup.map((x) => x.m), related };
+  return { ...toSchedule(s), lineup: (s.lineup ?? []).map(toMember), related: (s.related ?? []).map(toNews) };
 }
 
 // ---------- News ----------
-export async function listNews(category?: string, limit = 20) {
-  await ready();
-  const cond = category && category !== "latest" ? eq(news.category, category) : undefined;
-  return db.select().from(news).where(cond).orderBy(desc(news.publishedAt)).limit(limit);
+export async function listNews(category?: string, limit = 20): Promise<NewsItem[]> {
+  const p = new URLSearchParams({ limit: String(limit) });
+  if (category && category !== "latest") p.set("category", category);
+  const rows = await apiGet<ApiNews[]>(`/news?${p}`, []);
+  return rows.map(toNews);
 }
-export async function highlightedNews() {
-  await ready();
-  return db.select().from(news).where(eq(news.isHighlighted, true)).orderBy(desc(news.publishedAt)).limit(3);
+
+export async function highlightedNews(): Promise<NewsItem[]> {
+  const rows = await apiGet<ApiNews[]>("/news/highlighted", []);
+  return rows.map(toNews);
 }
-export async function popularNews() {
-  return db.select().from(news).orderBy(desc(news.views)).limit(3);
+
+export async function popularNews(): Promise<NewsItem[]> {
+  const rows = await apiGet<ApiNews[]>("/news/popular", []);
+  return rows.map(toNews);
 }
-export async function getNews(slug: string) {
-  await ready();
-  const [n] = await db.select().from(news).where(eq(news.slug, slug));
-  if (n) await db.update(news).set({ views: n.views + 1 }).where(eq(news.id, n.id));
-  return n ?? null;
+
+export async function getNews(slug: string): Promise<NewsItem | null> {
+  const n = await apiGet<ApiNews | null>(`/news/slug/${encodeURIComponent(slug)}`, null);
+  return n ? toNews(n) : null;
 }
 
 // ---------- Birthday ----------
-export async function birthdayToday() {
-  await ready();
-  const { month, day } = wibParts(new Date());
-  return db
-    .select()
-    .from(members)
-    .where(and(eq(members.showBirthday, true), sql`extract(month from ${members.birthDate}) = ${month}`, sql`extract(day from ${members.birthDate}) = ${day}`));
+export async function birthdayToday(): Promise<Member[]> {
+  const rows = await apiGet<ApiMember[]>("/birthday/today", []);
+  return rows.map(toMember);
 }
 
-export async function birthdayThisWeek() {
-  await ready();
-  const { year, month, day, weekday } = wibParts(new Date());
-  const monday = wibMidnight(year, month, day);
-  monday.setUTCDate(monday.getUTCDate() - ((weekday + 6) % 7));
-  const days: { key: string; month: number; day: number; date: Date }[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setUTCDate(d.getUTCDate() + i);
-    const p = wibParts(d);
-    days.push({ key: wibDateKey(d), month: p.month, day: p.day, date: d });
-  }
-  const all = await db.select().from(members).where(eq(members.showBirthday, true));
-  return days.map((d) => ({
-    ...d,
-    members: all.filter((m) => m.birthDate && Number(m.birthDate.split("-")[1]) === d.month && Number(m.birthDate.split("-")[2]) === d.day),
-  }));
+export async function birthdayThisWeek(): Promise<{ key: string; month: number; day: number; date: Date; members: Member[] }[]> {
+  const days = await apiGet<{ key: string; month: number; day: number; date: string; members: ApiMember[] }[]>("/birthday/week", []);
+  return days.map((d) => ({ ...d, date: new Date(d.date), members: d.members.map(toMember) }));
 }
 
-export async function birthdaysInMonth(month: number) {
-  await ready();
-  return db.select().from(members).where(and(eq(members.showBirthday, true), sql`extract(month from ${members.birthDate}) = ${month}`)).orderBy(sql`extract(day from ${members.birthDate})`);
+export async function birthdaysInMonth(month: number): Promise<Member[]> {
+  const rows = await apiGet<ApiMember[]>(`/birthday/month/${month}`, []);
+  return rows.map(toMember);
 }
 
-export async function wishesFor(memberId: number, year: number) {
-  return db.select().from(birthdayWishes).where(and(eq(birthdayWishes.memberId, memberId), eq(birthdayWishes.year, year))).orderBy(desc(birthdayWishes.createdAt)).limit(50);
+export async function wishesFor(memberId: number, year: number): Promise<Wish[]> {
+  const rows = await apiGet<ApiWish[]>(`/birthday/${memberId}/wishes?year=${year}`, []);
+  return rows.map(toWish);
 }
 
 // ---------- Chat ----------
-export async function recentChat(limit = 50, viewerId?: number | null) {
-  await ready();
-  const rows = await db
-    .select()
-    .from(chatMessages)
-    .where(and(eq(chatMessages.isHidden, false), gte(chatMessages.createdAt, new Date(Date.now() - 3 * 86400_000))))
-    .orderBy(desc(chatMessages.createdAt))
-    .limit(limit);
-  const ids = rows.map((r) => r.id);
-  const reacts = ids.length ? await db.select().from(chatReactions).where(inArray(chatReactions.messageId, ids)) : [];
-  const parentIds = rows.map((r) => r.parentId).filter((x): x is number => !!x);
-  const parents = parentIds.length ? await db.select({ id: chatMessages.id, username: chatMessages.username, body: chatMessages.body }).from(chatMessages).where(inArray(chatMessages.id, parentIds)) : [];
-  return rows.reverse().map((r) => {
-    const rs = reacts.filter((x) => x.messageId === r.id);
-    const grouped: Record<string, number> = {};
-    for (const x of rs) grouped[x.emoji] = (grouped[x.emoji] ?? 0) + 1;
-    return {
-      ...r,
-      createdAt: r.createdAt.toISOString(),
-      reactions: Object.entries(grouped).map(([emoji, n]) => ({ emoji, n, mine: rs.some((x) => x.emoji === emoji && x.userId === viewerId) })),
-      parent: r.parentId ? parents.find((p) => p.id === r.parentId) ?? null : null,
-    };
-  });
+export async function recentChat(limit = 50, viewerId?: number | null): Promise<ChatRow[]> {
+  void viewerId;
+  return apiGet<ChatRow[]>(`/chat?limit=${limit}`, []);
 }
-export type ChatRow = Awaited<ReturnType<typeof recentChat>>[number];
 
-export async function pinnedChat() {
-  return db.select().from(chatMessages).where(and(eq(chatMessages.isPinned, true), eq(chatMessages.isHidden, false))).orderBy(desc(chatMessages.createdAt)).limit(3);
+export async function pinnedChat(): Promise<{ id: number; username: string; body: string; createdAt: string }[]> {
+  return apiGet("/chat/pinned", []);
 }
 
 // ---------- Games ----------
 export async function dailyLeaderboard(game?: string, limit = 10) {
-  await ready();
-  const { year, month, day } = wibParts(new Date());
-  const start = wibMidnight(year, month, day);
-  const conds = [gte(gameScores.createdAt, start)];
-  if (game) conds.push(eq(gameScores.game, game));
-  return db
-    .select({ userId: gameScores.userId, username: users.username, avatarSeed: users.avatarSeed, streak: users.streak, total: sql<number>`sum(${gameScores.score})::int` })
-    .from(gameScores)
-    .innerJoin(users, eq(users.id, gameScores.userId))
-    .where(and(...conds))
-    .groupBy(gameScores.userId, users.username, users.avatarSeed, users.streak)
-    .orderBy(desc(sql`sum(${gameScores.score})`))
-    .limit(limit);
+  const p = new URLSearchParams({ limit: String(limit) });
+  if (game) p.set("game", game);
+  return apiGet<{ userId: number; username: string; avatarSeed: number; streak: number; total: number }[]>(`/games/leaderboard/daily?${p}`, []);
 }
 
 export async function allTimeLeaderboard(game: string, limit = 20) {
-  return db
-    .select({ userId: gameScores.userId, username: users.username, avatarSeed: users.avatarSeed, streak: users.streak, total: sql<number>`sum(${gameScores.score})::int`, plays: count() })
-    .from(gameScores)
-    .innerJoin(users, eq(users.id, gameScores.userId))
-    .where(eq(gameScores.game, game))
-    .groupBy(gameScores.userId, users.username, users.avatarSeed, users.streak)
-    .orderBy(desc(sql`sum(${gameScores.score})`))
-    .limit(limit);
+  return apiGet<{ userId: number; username: string; avatarSeed: number; streak: number; total: number; plays: number }[]>(
+    `/games/leaderboard/all-time?game=${encodeURIComponent(game)}&limit=${limit}`,
+    [],
+  );
 }
 
 export async function playerCount(game: string) {
-  const [r] = await db.select({ n: sql<number>`count(distinct ${gameScores.userId})::int` }).from(gameScores).where(eq(gameScores.game, game));
+  const r = await apiGet<{ n: number }>(`/games/${encodeURIComponent(game)}/players`, { n: 0 });
   return r?.n ?? 0;
 }
 
-// ---------- Misc ----------
-export async function getEncyclopedia(slug: string) {
-  await ready();
-  const [e] = await db.select().from(encyclopedia).where(eq(encyclopedia.slug, slug));
-  return e ?? null;
-}
-export async function listEncyclopedia() {
-  await ready();
-  return db.select().from(encyclopedia).orderBy(asc(encyclopedia.sortOrder));
-}
-export async function listGlossary() {
-  return db.select().from(glossary).orderBy(asc(glossary.term));
-}
-export async function dailyMotivation() {
-  await ready();
-  const today = wibDateKey();
-  const [f] = await db.select().from(motivations).where(and(eq(motivations.isPublished, true), eq(motivations.featuredOn, today)));
-  if (f) return f;
-  const [l] = await db.select().from(motivations).where(eq(motivations.isPublished, true)).orderBy(desc(motivations.createdAt)).limit(1);
-  return l ?? null;
-}
-export async function listMotivations() {
-  return db.select().from(motivations).where(eq(motivations.isPublished, true)).orderBy(desc(motivations.createdAt));
+// ---------- Encyclopedia / Glossary / Motivation ----------
+export async function getEncyclopedia(slug: string): Promise<EncyclopediaRow | null> {
+  const e = await apiGet<ApiEncyclopedia | null>(`/encyclopedia/${encodeURIComponent(slug)}`, null);
+  return e ? toEnc(e) : null;
 }
 
+export async function listEncyclopedia(): Promise<EncyclopediaRow[]> {
+  const rows = await apiGet<ApiEncyclopedia[]>("/encyclopedia", []);
+  return rows.map(toEnc);
+}
+
+export async function listGlossary() {
+  return apiGet<{ id: number; term: string; meaning: string }[]>("/glossary", []);
+}
+
+export async function dailyMotivation(): Promise<MotivationRow | null> {
+  const m = await apiGet<ApiMotivation | null>("/motivation/daily", null);
+  return m ? toMot(m) : null;
+}
+
+export async function listMotivations(): Promise<MotivationRow[]> {
+  const rows = await apiGet<ApiMotivation[]>("/motivation/list", []);
+  return rows.map(toMot);
+}
+
+// ---------- Notifications / Bookmarks / Reminders ----------
 export async function unreadCount(userId: number | null) {
   if (!userId) return 0;
-  const [r] = await db.select({ n: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  const r = await apiGet<{ n: number }>("/notifications/unread-count", { n: 0 });
   return r?.n ?? 0;
 }
+
 export async function listNotifications(userId: number, limit = 50) {
-  return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(limit);
+  void userId;
+  const rows = await apiGet<{ id: number; userId: number; type: string; title: string; body: string | null; href: string | null; isRead: boolean; createdAt: string }[]>(
+    `/notifications?limit=${limit}`,
+    [],
+  );
+  return rows.map((n) => ({ ...n, createdAt: new Date(n.createdAt) }));
 }
 
 export async function isBookmarked(userId: number | null, type: string, id: number) {
   if (!userId) return false;
-  const [b] = await db.select().from(bookmarks).where(and(eq(bookmarks.userId, userId), eq(bookmarks.entityType, type), eq(bookmarks.entityId, id)));
-  return !!b;
-}
-export async function reminderSet(userId: number | null) {
-  if (!userId) return new Set<number>();
-  const rows = await db.select().from(scheduleReminders).where(eq(scheduleReminders.userId, userId));
-  return new Set(rows.map((r) => r.scheduleId));
-}
-export async function userOshiList(userId: number) {
-  return db
-    .select({ m: members, rank: userOshi.rank })
-    .from(userOshi)
-    .innerJoin(members, eq(members.id, userOshi.memberId))
-    .where(eq(userOshi.userId, userId))
-    .orderBy(asc(userOshi.rank));
+  const r = await apiGet<{ on: boolean }>(`/bookmarks/check?type=${encodeURIComponent(type)}&id=${id}`, { on: false });
+  return !!r.on;
 }
 
+export async function reminderSet(userId: number | null): Promise<Set<number>> {
+  if (!userId) return new Set<number>();
+  const r = await apiGet<{ ids: number[] }>("/schedules/reminders", { ids: [] });
+  return new Set(r.ids ?? []);
+}
+
+export async function userOshiList(userId: number) {
+  void userId;
+  const rows = await apiGet<{ m: ApiMember; rank: number }[]>("/account/oshi", []);
+  return rows.map((r) => ({ m: toMember(r.m), rank: r.rank }));
+}
+
+// ---------- Misc ----------
 export async function counts() {
-  await ready();
-  const [u] = await db.select({ n: count() }).from(users);
-  const [c] = await db.select({ n: count() }).from(chatMessages).where(gte(chatMessages.createdAt, new Date(Date.now() - 86400_000)));
-  return { users: u?.n ?? 0, chat24h: c?.n ?? 0 };
+  return apiGet<{ users: number; chat24h: number }>("/stats/counts", { users: 0, chat24h: 0 });
+}
+
+export async function listContributors() {
+  return apiGet<{ id: number; name: string; role: string; contribution: string }[]>("/contributors", []);
+}
+
+export async function accountSummary() {
+  return apiGet<{ gameSessions: number; interactions: number; oshi: { m: ApiMember; rank: number }[] }>(
+    "/account/summary",
+    { gameSessions: 0, interactions: 0, oshi: [] },
+  );
+}
+
+export async function accountOverview() {
+  return apiGet<{
+    sessions: { id: string; device: string; ip: string; browser: string; createdAt: string | null; lastUsedAt: string | null }[];
+    loginLogs: { id: string; createdAt: string; success: boolean; ip: string; device: string }[];
+    activity: { id: number; action: string; detail: string | null; createdAt: string }[];
+    bookmarks: { entityType: string; id: number; title: string; href: string }[];
+    gameScores: { id: number; game: string; score: number; detail: string | null; createdAt: string }[];
+    chat: { id: number; body: string; isHidden: boolean; createdAt: string }[];
+    sorter: { id: number; createdAt: string; top3: string[]; count: number }[];
+  }>("/account/overview", { sessions: [], loginLogs: [], activity: [], bookmarks: [], gameScores: [], chat: [], sorter: [] });
+}
+
+// ---------- Admin ----------
+export type AdminUserRow = {
+  id: number;
+  username: string;
+  email: string;
+  role: string;
+  avatarSeed: number;
+  points: number;
+  isBlocked: boolean;
+  isMuted: boolean;
+  createdAt: string;
+  blockedUntil: string | null;
+  mutedUntil: string | null;
+};
+
+export async function adminUsers(limit = 100): Promise<(Omit<AdminUserRow, "createdAt" | "blockedUntil" | "mutedUntil"> & { createdAt: Date; blockedUntil: Date | null; mutedUntil: Date | null })[]> {
+  const rows = await apiGet<AdminUserRow[]>(`/admin/users?limit=${limit}`, []);
+  return rows.map((u) => ({
+    ...u,
+    createdAt: new Date(u.createdAt),
+    blockedUntil: u.blockedUntil ? new Date(u.blockedUntil) : null,
+    mutedUntil: u.mutedUntil ? new Date(u.mutedUntil) : null,
+  }));
+}
+
+export async function adminStats() {
+  return apiGet<{ admins: number; moderators: number; pendingReports: number }>("/admin/stats", { admins: 0, moderators: 0, pendingReports: 0 });
+}
+
+export async function moderationReports(status = "pending") {
+  return apiGet<
+    {
+      id: number;
+      messageId: number;
+      reporterId: number;
+      targetUserId: number | null;
+      targetUsername: string | null;
+      targetRole: string | null;
+      targetAvatarSeed: number | null;
+      reason: string;
+      description: string | null;
+      status: string;
+      createdAt: string;
+      message: { username: string; body: string; isHidden: boolean };
+    }[]
+  >(`/moderation/reports?status=${status}`, []);
+}
+
+export async function moderationLogs(limit = 10) {
+  const rows = await apiGet<{ id: number; userId: number | null; kind: string; detail: string | null; createdAt: string }[]>(
+    `/admin/moderation-logs?limit=${limit}`,
+    [],
+  );
+  return rows.map((r) => ({ ...r, createdAt: new Date(r.createdAt) }));
+}
+
+export async function staffLoginLogs(limit = 10) {
+  const rows = await apiGet<{ id: string; userId: string; username: string | null; success: boolean; kind: string; device: string; ip: string; browser: string; createdAt: string }[]>(
+    `/admin/login-logs?limit=${limit}`,
+    [],
+  );
+  return rows.map((r) => ({ ...r, createdAt: new Date(r.createdAt) }));
 }
 
 // ---------- Global search ----------
 export async function globalSearch(q: string) {
-  await ready();
-  const term = `%${q.slice(0, 80)}%`;
-  const [ms, ns, ss, es, gs, mo] = await Promise.all([
-    db.select().from(members).where(or(ilike(members.name, term), ilike(members.nickname, term), ilike(members.jikoshoukai, term))).limit(6),
-    db.select().from(news).where(or(ilike(news.title, term), ilike(news.summary, term), ilike(news.body, term))).orderBy(desc(news.publishedAt)).limit(5),
-    db.select().from(schedules).where(or(ilike(schedules.title, term), ilike(schedules.location, term))).orderBy(asc(schedules.startAt)).limit(5),
-    db.select().from(encyclopedia).where(or(ilike(encyclopedia.title, term), ilike(encyclopedia.content, term))).limit(4),
-    db.select().from(glossary).where(or(ilike(glossary.term, term), ilike(glossary.meaning, term))).limit(4),
-    db.select().from(motivations).where(ilike(motivations.quote, term)).limit(3),
-  ]);
-  return { members: ms, news: ns, schedules: ss, encyclopedia: es, glossary: gs, motivations: mo };
+  const r = await apiGet<{
+    members: ApiMember[];
+    news: ApiNews[];
+    schedules: ApiSchedule[];
+    encyclopedia: ApiEncyclopedia[];
+    glossary: { id: number; term: string; meaning: string }[];
+    motivations: ApiMotivation[];
+  }>(`/search?q=${encodeURIComponent(q.slice(0, 80))}`, { members: [], news: [], schedules: [], encyclopedia: [], glossary: [], motivations: [] });
+  return {
+    members: r.members.map(toMember),
+    news: r.news.map(toNews),
+    schedules: r.schedules.map(toSchedule),
+    encyclopedia: r.encyclopedia.map(toEnc),
+    glossary: r.glossary,
+    motivations: r.motivations.map(toMot),
+  };
 }
 
-export { isNull, lte };
+/** Kompatibilitas import lama — kini API selalu siap. */
+export async function ready() {}

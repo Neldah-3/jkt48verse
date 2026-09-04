@@ -12,7 +12,7 @@ export default async function ChatPage() {
   return (
     <>
       <PageHead title="Public Chat" sub="Kanal #general · ruang ngobrol sesama fans" right={<span className="chip"><span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--ok)" }} /> {online} aktif</span>} />
-      <ChatRoom initial={messages} pinned={pinned.map((p) => ({ id: p.id, username: p.username, body: p.body }))} viewer={{ role: v.role, userId: v.userId, username: v.username, isMuted: v.isMuted, mutedUntil: v.user?.mutedUntil?.toISOString() ?? null }} />
+      <ChatRoom initial={messages} pinned={pinned.map((p) => ({ id: p.id, username: p.username, body: p.body }))} viewer={{ role: v.role, userId: v.userId, username: v.username, isMuted: v.isMuted, mutedUntil: v.user?.mutedUntil ?? null }} />
       <Disclaimer />
     </>
   );
