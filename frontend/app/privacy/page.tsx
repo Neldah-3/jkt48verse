@@ -1,0 +1,4 @@
+import { Disclaimer, PageHead } from "@/components/ui";
+export default function PrivacyPage() {
+  return (<><PageHead title="Kebijakan Privasi" /><div className="card w article"><h2>Data yang Dikumpulkan</h2><p>Kami <b>tidak</b> mengumpulkan email atau nomor HP. Data yang disimpan: username, hash password, preferensi (tema, bahasa, notifikasi, oshi), pesan chat (retensi 3 hari), skor games, bookmark, dan log sesi/login untuk keamanan.</p><h2>Cookie</h2><p>Sesi login menggunakan cookie <code>HttpOnly</code> dan <code>SameSite=Lax</code>. Preferensi tamu (tema, layout multi-live, riwayat AI search) disimpan di <code>localStorage</code> perangkatmu.</p><h2>Hak Pengguna</h2><p>Kamu dapat mengakhiri semua sesi dari halaman Settings dan meminta penghapusan akun melalui Admin.</p><h2>Tidak Menjual Data</h2><p>Data tidak dijual atau dibagikan ke pihak ketiga.</p></div><Disclaimer /></>);
+}

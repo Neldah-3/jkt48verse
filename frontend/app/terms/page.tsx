@@ -1,0 +1,4 @@
+import { Disclaimer, PageHead } from "@/components/ui";
+export default function TermsPage() {
+  return (<><PageHead title="Ketentuan Layanan" /><div className="card w article"><h2>Status Fan-Made</h2><p>JKT48Verse adalah platform buatan penggemar, non-komersial, dan tidak berafiliasi dengan JKT48 Operation Team. Seluruh informasi bersifat referensi komunitas.</p><h2>Larangan Penyalahgunaan</h2><ul><li>Dilarang mengirim konten kasar, pelecehan, NSFW, spam, atau provokasi di Public Chat dan ucapan Birthday.</li><li>Dilarang menyebarkan data pribadi member maupun pengguna lain.</li><li>Dilarang memanipulasi skor games; seluruh penilaian dilakukan di server.</li></ul><h2>Penangguhan Akun</h2><p>Akun dapat di-mute atau diblokir (sementara/permanen) oleh Moderator/Admin dengan alasan yang ditampilkan di notifikasi pengguna.</p><h2>Perubahan Ketentuan</h2><p>Ketentuan dapat berubah sewaktu-waktu dan diumumkan melalui notifikasi SYSTEM.</p></div><Disclaimer /></>);
+}

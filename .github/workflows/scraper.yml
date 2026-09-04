@@ -1,0 +1,29 @@
+name: Scraper Sync
+
+on:
+  schedule:
+    - cron: '0 17 * * *'  # 00:00 WIB
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install scraper dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run scraper
+        working-directory: scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python jkt48scraper.py --members --sync
+          python jkt48scraper.py --news --sync
+          python jkt48scraper.py --schedule --sync
