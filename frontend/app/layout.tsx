@@ -13,7 +13,6 @@ export const metadata: Metadata = {
     icon: [
       { url: "/jv-favicon-16.png", sizes: "16x16", type: "image/png" },
       { url: "/jv-favicon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/jkt48verse-icon.svg", type: "image/svg+xml" },
       { url: "/jv-icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/jv-icon-512.png", sizes: "512x512", type: "image/png" },
     ],
