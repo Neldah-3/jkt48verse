@@ -24,6 +24,9 @@ from src.auth.schemas import (
     LogoutResponse,
     PasswordResetConfirmRequest,
     PasswordResetConfirmResponse,
+    PasswordResetOtpConfirmRequest,
+    PasswordResetOtpRequest,
+    PasswordResetOtpResponse,
     PasswordResetRequest,
     PasswordResetResponse,
     Token,
@@ -521,3 +524,68 @@ async def reset_password_endpoint(
         return PasswordResetConfirmResponse(message=ErrorCode.PASSWORD_RESET_SUCCESS)
     else:
         raise PasswordResetTokenInvalidError()
+
+
+# Password Reset via OTP (JKT48Verse)
+@router.post(
+    "/auth/forgot-password/otp",
+    response_model=PasswordResetOtpResponse,
+    response_model_exclude_none=True,
+)
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
+async def forgot_password_otp(
+    request: Request,
+    request_data: PasswordResetOtpRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    Minta kode OTP 6 digit untuk reset password (dikirim ke email).
+
+    Respons selalu sama untuk email terdaftar maupun tidak (anti-enumerasi).
+    Kode berlaku 10 menit; meminta kode baru otomatis mengganti kode lama.
+    Pada ENV=dev tanpa Resend, kode dikembalikan sebagai ``devCode``.
+    """
+    result = await auth_service.resend_password_reset_otp(request_data.email)
+    payload: dict = {
+        "message": "Jika email terdaftar, kode OTP reset password telah dikirim."
+    }
+    if isinstance(result, dict) and result.get("devCode"):
+        payload["devCode"] = result["devCode"]
+    return payload
+
+
+@router.post("/auth/reset-password/otp")
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
+async def reset_password_otp_endpoint(
+    request: Request,
+    request_data: PasswordResetOtpConfirmRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    Reset password memakai kode OTP 6 digit yang dikirim via email.
+
+    Selain mengganti password, semua sesi login dicabut dan lockout akun
+    (akibat salah password berulang) dipulihkan.
+    """
+    if request_data.new_password != request_data.confirm_password:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Konfirmasi password tidak cocok.", "reset": False},
+        )
+    if not 8 <= len(request_data.new_password) <= 64:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "message": "Password minimal 8 karakter (maksimal 64 karakter).",
+                "reset": False,
+            },
+        )
+
+    success, message = await auth_service.reset_password_with_otp(
+        request_data.email, request_data.code, request_data.new_password
+    )
+    if success:
+        return {"message": message, "reset": True}
+    return JSONResponse(
+        status_code=400, content={"message": message, "reset": False}
+    )

@@ -165,3 +165,40 @@ def test_config_admin_password_not_hardcoded():
     assert s.ADMIN_PASSWORD.get_secret_value() == "", (
         "password admin tidak boleh punya default hardcoded"
     )
+
+
+def test_password_reset_routes_registered():
+    """Lupa password, reset password (link), dan reset password OTP harus ada."""
+    from src.main import app
+
+    post_paths = {
+        getattr(r, "path", None)
+        for r in app.routes
+        if "POST" in (getattr(r, "methods", set()) or set())
+    }
+    for expected in [
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
+        "/api/auth/forgot-password/otp",
+        "/api/auth/reset-password/otp",
+    ]:
+        assert expected in post_paths, f"route POST {expected} hilang"
+
+
+def test_password_reset_otp_schema_fields():
+    from src.auth.schemas import (
+        PasswordResetOtpConfirmRequest,
+        PasswordResetOtpRequest,
+        PasswordResetOtpResponse,
+    )
+
+    req = PasswordResetOtpRequest(email="fan@example.org")
+    assert req.email == "fan@example.org"
+    confirm = PasswordResetOtpConfirmRequest(
+        email="fan@example.org",
+        code="123456",
+        new_password="BaruAman123!",
+        confirm_password="BaruAman123!",
+    )
+    assert confirm.code == "123456"
+    assert PasswordResetOtpResponse(message="ok").devCode is None

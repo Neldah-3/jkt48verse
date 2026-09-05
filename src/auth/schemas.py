@@ -164,6 +164,23 @@ class PasswordResetConfirmResponse(BaseModel):
     message: str
 
 
+# Password Reset via OTP (JKT48Verse)
+class PasswordResetOtpRequest(BaseModel):
+    email: str
+
+
+class PasswordResetOtpResponse(BaseModel):
+    message: str
+    devCode: Optional[str] = None
+
+
+class PasswordResetOtpConfirmRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+    confirm_password: str
+
+
 # Security Schemas
 class SecurityStatus(BaseModel):
     isEmailVerified: bool

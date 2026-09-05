@@ -259,3 +259,189 @@ async def test_seed_accounts_cannot_login_in_production(pg_app, monkeypatch):
         await pg_app.client.post("/api/auth/refresh", headers={"x-csrf-token": csrf})
     ).status_code == 401
     assert (await login(pg_app)).status_code == 401
+
+
+# ---------------- Lupa password & reset password (link + OTP) ----------------
+NEW_PASSWORD = "PasswordBaru123!"
+
+
+async def test_password_reset_otp_full_flow(pg_app):
+    await make_user(pg_app)
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password/otp", json={"email": "fan@example.org"}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    # RESEND kosong + ENV=dev → kode dikembalikan sebagai devCode
+    code = body["devCode"]
+    assert len(code) == 6 and code.isdigit()
+
+    r = await pg_app.client.post(
+        "/api/auth/reset-password/otp",
+        json={
+            "email": "fan@example.org",
+            "code": code,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    assert r.status_code == 200 and r.json()["reset"] is True
+
+    # Password lama tidak bisa lagi, password baru bisa dipakai login.
+    assert (await login(pg_app)).status_code == 401
+    assert (await login(pg_app, password=NEW_PASSWORD)).status_code == 200
+
+
+async def test_password_reset_otp_unknown_email_is_generic(pg_app):
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password/otp", json={"email": "ghost@example.org"}
+    )
+    # Anti-enumerasi: respons 200 generik tanpa devCode.
+    assert r.status_code == 200
+    assert "devCode" not in r.json()
+
+
+async def test_password_reset_otp_wrong_code_limited_then_reusable(pg_app):
+    await make_user(pg_app)
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password/otp", json={"email": "fan@example.org"}
+    )
+    code = r.json()["devCode"]
+
+    for i in range(5):
+        wrong = "000000" if code != "000000" else "000001"
+        r = await pg_app.client.post(
+            "/api/auth/reset-password/otp",
+            json={
+                "email": "fan@example.org",
+                "code": wrong,
+                "new_password": NEW_PASSWORD,
+                "confirm_password": NEW_PASSWORD,
+            },
+        )
+        assert r.status_code == 400 and r.json()["reset"] is False
+        if i == 4:
+            assert "Terlalu banyak percobaan" in r.json()["message"]
+
+    # Kode lama hangus walau sekarang ditebak benar.
+    r = await pg_app.client.post(
+        "/api/auth/reset-password/otp",
+        json={
+            "email": "fan@example.org",
+            "code": code,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    assert r.status_code == 400
+
+    # Minta kode baru → sukses dipakai reset.
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password/otp", json={"email": "fan@example.org"}
+    )
+    code2 = r.json()["devCode"]
+    r = await pg_app.client.post(
+        "/api/auth/reset-password/otp",
+        json={
+            "email": "fan@example.org",
+            "code": code2,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    assert r.status_code == 200 and r.json()["reset"] is True
+
+
+async def test_password_reset_otp_expired_code_rejected(pg_app):
+    from src.models import VerificationToken
+
+    await make_user(pg_app)
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password/otp", json={"email": "fan@example.org"}
+    )
+    code = r.json()["devCode"]
+
+    async with pg_app.sessions() as session:
+        row = (await session.execute(select(VerificationToken))).scalar_one()
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+
+    r = await pg_app.client.post(
+        "/api/auth/reset-password/otp",
+        json={
+            "email": "fan@example.org",
+            "code": code,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    assert r.status_code == 400 and r.json()["reset"] is False
+
+
+async def test_password_reset_otp_validation(pg_app):
+    await make_user(pg_app)
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password/otp", json={"email": "fan@example.org"}
+    )
+    code = r.json()["devCode"]
+    # Konfirmasi password tidak cocok
+    r = await pg_app.client.post(
+        "/api/auth/reset-password/otp",
+        json={
+            "email": "fan@example.org",
+            "code": code,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": "Beda123!Beda",
+        },
+    )
+    assert r.status_code == 400 and "tidak cocok" in r.json()["message"]
+    # Password terlalu pendek
+    r = await pg_app.client.post(
+        "/api/auth/reset-password/otp",
+        json={
+            "email": "fan@example.org",
+            "code": code,
+            "new_password": "pendek",
+            "confirm_password": "pendek",
+        },
+    )
+    assert r.status_code == 400 and "8 karakter" in r.json()["message"]
+
+
+async def test_password_reset_link_flow(pg_app, monkeypatch):
+    """Alur link email: /auth/forgot-password → /auth/reset-password?token=."""
+    from unittest.mock import AsyncMock
+
+    from src.auth.email_service import EmailService
+
+    sent = AsyncMock()
+    monkeypatch.setattr(EmailService, "send_password_reset", sent)
+
+    await make_user(pg_app)
+    r = await pg_app.client.post(
+        "/api/auth/forgot-password", json={"email": "fan@example.org"}
+    )
+    assert r.status_code == 200
+    token = sent.call_args[0][2]  # (self, email, token, username)
+
+    r = await pg_app.client.post(
+        "/api/auth/reset-password",
+        json={
+            "token": token,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    assert r.status_code == 200
+    assert (await login(pg_app, password=NEW_PASSWORD)).status_code == 200
+
+    # Token yang sudah dipakai tidak bisa dipakai dua kali.
+    r = await pg_app.client.post(
+        "/api/auth/reset-password",
+        json={
+            "token": token,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    assert r.status_code == 400

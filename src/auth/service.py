@@ -444,3 +444,108 @@ class AuthService:
             logger.info(f"[DEV] OTP untuk {email}: {result['code']}")
             return {"devCode": result["code"]}
         return {}
+
+    # ------------------------------------------------------------------
+    # JKT48Verse: lupa & reset password via OTP 6 digit
+    # ------------------------------------------------------------------
+    RESET_OTP_TYPE = "reset_otp"
+    RESET_OTP_TTL_MINUTES = 10
+    RESET_OTP_MAX_ATTEMPTS = 5
+
+    def _reset_otp_attempts_key(self, user_id: str) -> str:
+        return f"reset_otp_attempts:{user_id}"
+
+    async def create_password_reset_otp(self, email: str) -> Optional[dict]:
+        """Buat OTP 6 digit untuk reset password (berlaku 10 menit).
+
+        Return ``None`` bila email tidak terdaftar supaya keberadaan akun
+        tidak bocor. Kode baru otomatis mengganti kode lama.
+        """
+        user = await self.get_user(email)
+        if not user:
+            return None
+
+        import secrets as _secrets
+
+        code = f"{_secrets.randbelow(1_000_000):06d}"
+        code_hash = self.hash_token(code)
+        await self.security_service.save_token(
+            user.userId, code_hash, self.RESET_OTP_TYPE, self.RESET_OTP_TTL_MINUTES / 60
+        )
+
+        from src.redis_client import redis_instance
+
+        await redis_instance.delete(self._reset_otp_attempts_key(user.userId))
+
+        sent = await self.email_service.send_password_reset_otp(
+            user.email, code, user.username
+        )
+        return {"code": code, "sent": sent}
+
+    async def resend_password_reset_otp(self, email: str) -> Optional[dict]:
+        """Kirim (ulang) OTP reset password.
+
+        Bila Resend belum diatur & ENV=dev → kembalikan ``devCode`` agar alur
+        tetap bisa diuji lokal. Return ``None`` bila email tidak terdaftar.
+        """
+        result = await self.create_password_reset_otp(email)
+        if result is None:
+            return None
+        if not result["sent"] and self.config.is_env_dev:
+            logger.info(f"[DEV] OTP reset password untuk {email}: {result['code']}")
+            return {"devCode": result["code"]}
+        return {}
+
+    async def reset_password_with_otp(
+        self, email: str, code: str, new_password: str
+    ) -> tuple[bool, str]:
+        """Verifikasi kode OTP reset password lalu ganti password.
+
+        Percobaan kode salah dibatasi (maks. ``RESET_OTP_MAX_ATTEMPTS`` per
+        kode); melewati batas membuat kode hangus dan harus minta yang baru.
+        """
+        from src.redis_client import redis_instance
+
+        user = await self.get_user(email)
+        if not user:
+            return False, "Kode OTP tidak valid atau kedaluwarsa."
+
+        attempts_key = self._reset_otp_attempts_key(user.userId)
+        attempts_raw = await redis_instance.get(attempts_key)
+        attempts = int(attempts_raw) if attempts_raw else 0
+        if attempts >= self.RESET_OTP_MAX_ATTEMPTS:
+            # Kode sudah hangus: buang semua kode reset_otp milik user ini.
+            await self.security_service.auth_repo.delete_verification_tokens_by_user(
+                user.userId, self.RESET_OTP_TYPE
+            )
+            return False, "Terlalu banyak percobaan. Silakan minta kode OTP baru."
+
+        code_hash = self.hash_token((code or "").strip())
+        token_data = await self.security_service.verify_token(
+            code_hash, self.RESET_OTP_TYPE
+        )
+        if not token_data or token_data.get("userId") != user.userId:
+            attempts += 1
+            await redis_instance.set(
+                attempts_key, str(attempts), ttl=self.RESET_OTP_TTL_MINUTES * 60
+            )
+            if attempts >= self.RESET_OTP_MAX_ATTEMPTS:
+                return False, "Terlalu banyak percobaan. Silakan minta kode OTP baru."
+            return False, "Kode OTP tidak valid atau kedaluwarsa."
+
+        try:
+            hashed_password = await self.get_password_hash(new_password)
+            await self.user_repo.update_one(
+                {"userId": user.userId}, {"$set": {"password": hashed_password}}
+            )
+        except Exception as e:
+            logger.exception(f"Error resetting password with OTP: {str(e)}")
+            raise AuthOperationError()
+
+        # Pasca-reset: buang kode, cabut semua sesi, & pulihkan lockout login.
+        await self.security_service.delete_token(code_hash, self.RESET_OTP_TYPE)
+        await redis_instance.delete(attempts_key)
+        await self.auth_repo.delete_user_refresh_tokens(user.userId)
+        await self.security_service.reset_failed_login_attempts(user.userId)
+        await self.security_service.unlock_account(user.userId)
+        return True, "Password berhasil direset. Silakan login dengan password baru."
