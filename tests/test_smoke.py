@@ -28,6 +28,13 @@ def test_app_imports_and_routes_registered():
         assert expected in paths, f"route {expected} hilang"
 
 
+def test_api_title_uses_jkt48verse_branding():
+    from src.main import app
+
+    assert app.title == "JKT48Verse API"
+    assert app.openapi()["info"]["title"] == "JKT48Verse API"
+
+
 def test_reminder_route_not_shadowed_by_schedule_detail():
     """Regression: GET /schedules/reminders harus terdaftar SEBELUM
     GET /schedules/{schedule_id} agar tidak 422 (shadowed)."""

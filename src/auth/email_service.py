@@ -40,13 +40,13 @@ class EmailService:
         <div style="background-color: #fdf2f8; padding: 60px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 28px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08); border: 1px solid rgba(236, 72, 153, 0.1);">
                 <div style="padding: 40px 20px; text-align: center; border-bottom: 1px solid #f1f5f9;">
-                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">MyPage<span style="color: #ef4444;">48</span></h1>
+                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">JKT48<span style="color: #ef4444;">Verse</span></h1>
                     <p style="color: #ef4444; margin: 4px 0 0; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em;">Official Member Account</p>
                 </div>
                 <div style="padding: 48px 40px;">
                     <h2 style="color: #ef4444; margin: 0 0 16px; font-size: 28px; font-weight: 900; tracking: -0.02em;">Verify Your Email</h2>
                     <p style="color: #475569; line-height: 1.8; margin: 0 0 24px; font-size: 16px;">Hello <strong>{username}</strong>,</p>
-                    <p style="color: #475569; line-height: 1.8; margin: 0 0 40px; font-size: 16px;">Welcome to the family! To activate your digital theater profile and start your journey with MyPage48, please verify your email address below:</p>
+                    <p style="color: #475569; line-height: 1.8; margin: 0 0 40px; font-size: 16px;">Welcome to the family! To activate your digital theater profile and start your journey with JKT48Verse, please verify your email address below:</p>
                     
                     <div style="text-align: center; margin: 40px 0;">
                         <a href="{verification_url}" 
@@ -63,7 +63,7 @@ class EmailService:
                     <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; text-align: center; font-weight: 500;">This link is valid for {self.config.email_verification_expire_hours} hours. <br>If you didn't request this, you can safely ignore this email.</p>
                 </div>
                 <div style="background-color: #f1f5f9; padding: 32px; text-align: center;">
-                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">MyPage48</p>
+                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">JKT48Verse</p>
                     <p style="color: #64748b; font-size: 11px; margin: 4px 0 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Create your digital theater profile</p>
                 </div>
             </div>
@@ -73,7 +73,7 @@ class EmailService:
         payload = {
             "from": self.config.email_from,
             "to": email,
-            "subject": "Verify Your Email - MyPage48",
+            "subject": "Verify Your Email - JKT48Verse",
             "html": html_content,
         }
 
@@ -90,7 +90,7 @@ class EmailService:
         <div style="background-color: #fdf2f8; padding: 60px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 28px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08); border: 1px solid rgba(236, 72, 153, 0.1);">
                 <div style="padding: 40px 20px; text-align: center; border-bottom: 1px solid #f1f5f9;">
-                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">MyPage<span style="color: #ef4444;">48</span></h1>
+                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">JKT48<span style="color: #ef4444;">Verse</span></h1>
                     <p style="color: #ef4444; margin: 4px 0 0; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em;">Security Notification</p>
                 </div>
                 <div style="padding: 48px 40px;">
@@ -113,7 +113,7 @@ class EmailService:
                     <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; text-align: center; font-weight: 500;">This link is valid for {self.config.password_reset_expire_hours} hour. <br>If you didn't request this, ignore this email.</p>
                 </div>
                 <div style="background-color: #f1f5f9; padding: 32px; text-align: center;">
-                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">MyPage48</p>
+                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">JKT48Verse</p>
                     <p style="color: #64748b; font-size: 11px; margin: 4px 0 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Guarding your memories</p>
                 </div>
             </div>
@@ -123,7 +123,7 @@ class EmailService:
         payload = {
             "from": self.config.email_from,
             "to": email,
-            "subject": "Reset Your Password - MyPage48",
+            "subject": "Reset Your Password - JKT48Verse",
             "html": html_content,
         }
 
@@ -142,7 +142,7 @@ class EmailService:
         <div style="background-color: #fdf2f8; padding: 60px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 28px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08); border: 1px solid rgba(236, 72, 153, 0.1);">
                 <div style="padding: 40px 20px; text-align: center; border-bottom: 1px solid #f1f5f9;">
-                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">MyPage<span style="color: #ef4444;">48</span></h1>
+                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">JKT48<span style="color: #ef4444;">Verse</span></h1>
                     <p style="color: #ef4444; margin: 4px 0 0; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em;">Security Alert</p>
                 </div>
                 <div style="padding: 48px 40px;">
@@ -158,10 +158,10 @@ class EmailService:
                     
                     <p style="color: #475569; line-height: 1.8; margin: 0 0 24px; font-size: 16px;">If you forgot your password, you can regain access immediately by using the <a href="{forgot_password_url}" style="color: #ef4444; text-decoration: underline; font-weight: 700;">Forgot Password</a> feature. Otherwise, your account will be automatically unlocked once the lockout period expires.</p>
                     
-                    <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; text-align: center; font-weight: 500;">If this wasn't you, we recommend ensuring your email account (e.g., Gmail, Outlook) is secure, as it is the primary way to recover your MyPage48 account.</p>
+                    <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; text-align: center; font-weight: 500;">If this wasn't you, we recommend ensuring your email account (e.g., Gmail, Outlook) is secure, as it is the primary way to recover your JKT48Verse account.</p>
                 </div>
                 <div style="background-color: #f1f5f9; padding: 32px; text-align: center;">
-                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">MyPage48</p>
+                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">JKT48Verse</p>
                     <p style="color: #64748b; font-size: 11px; margin: 4px 0 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Automated Security System</p>
                 </div>
             </div>
@@ -171,7 +171,7 @@ class EmailService:
         payload = {
             "from": self.config.email_from,
             "to": email,
-            "subject": "Account Locked - MyPage48",
+            "subject": "Account Locked - JKT48Verse",
             "html": html_content,
         }
 
@@ -227,13 +227,13 @@ class EmailService:
         <div style="background-color: #fdf2f8; padding: 60px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 28px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08); border: 1px solid rgba(236, 72, 153, 0.1);">
                 <div style="padding: 40px 20px; text-align: center; border-bottom: 1px solid #f1f5f9;">
-                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">MyPage<span style="color: #ef4444;">48</span></h1>
+                    <h1 style="color: #0f172a; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.05em;">JKT48<span style="color: #ef4444;">Verse</span></h1>
                     <p style="color: #ef4444; margin: 4px 0 0; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em;">Update Feedback</p>
                 </div>
                 <div style="padding: 48px 40px;">
                     <h2 style="color: #ef4444; margin: 0 0 16px; font-size: 24px; font-weight: 900; tracking: -0.02em;">Status Laporan Kamu Diperbarui</h2>
                     <p style="color: #475569; line-height: 1.8; margin: 0 0 24px; font-size: 16px;">Halo <strong>{html.escape(name)}</strong>,</p>
-                    <p style="color: #475569; line-height: 1.8; margin: 0; font-size: 16px;">Terima kasih telah memberikan masukan untuk MyPage48. Kami ingin mengabarkan bahwa status laporan/saran kamu telah diperbarui.</p>
+                    <p style="color: #475569; line-height: 1.8; margin: 0; font-size: 16px;">Terima kasih telah memberikan masukan untuk JKT48Verse. Kami ingin mengabarkan bahwa status laporan/saran kamu telah diperbarui.</p>
                     
                     <div style="background-color: #f8fafc; border-left: 5px solid {status_color}; padding: 24px; border-radius: 0 18px 18px 0; margin: 30px 0;">
                         <p style="color: #64748b; font-size: 12px; margin: 0 0 8px; font-weight: 600; text-transform: uppercase;">Masukan Kamu:</p>
@@ -253,7 +253,7 @@ class EmailService:
                     </div>
                 </div>
                 <div style="background-color: #f1f5f9; padding: 32px; text-align: center;">
-                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">MyPage48</p>
+                    <p style="color: #0f172a; font-weight: 900; font-size: 14px; margin: 0;">JKT48Verse</p>
                     <p style="color: #64748b; font-size: 11px; margin: 4px 0 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Terima kasih atas kontribusimu!</p>
                 </div>
             </div>
@@ -263,7 +263,7 @@ class EmailService:
         payload = {
             "from": self.config.email_from,
             "to": email,
-            "subject": f"Update Status Masukan: {display_status} - MyPage48",
+            "subject": f"Update Status Masukan: {display_status} - JKT48Verse",
             "html": html_content,
         }
 

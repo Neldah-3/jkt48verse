@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="MyPage48 API",
+    title="JKT48Verse API",
     openapi_url="/api/openapi.json" if config.is_env_dev else None,
     docs_url="/docs" if config.is_env_dev else None,
     redoc_url="/redoc" if config.is_env_dev else None,

@@ -608,7 +608,7 @@ class AppMeta(Base):
 
 
 # =====================================================================
-# LEGACY (modul lama MyPage48 yang masih dilayani: setlists & concerts)
+# LEGACY (modul lama JKT48Verse yang masih dilayani: setlists & concerts)
 # =====================================================================
 class Setlist(Base):
     __tablename__ = "setlists"
