@@ -38,8 +38,13 @@ def wib_date_key(d: datetime | date | str | None = None) -> str:
 
 
 def wib_midnight(year: int, month: int, day: int) -> datetime:
-    """00:00 WIB pada tanggal kalender tersebut (disimpan sebagai UTC)."""
-    return datetime(year, month, day, 7, 0, 0, tzinfo=timezone.utc)
+    """00:00 WIB pada tanggal kalender tersebut (sebagai datetime tz-aware).
+
+    00:00 WIB == 17:00 UTC hari sebelumnya. Implementasi lama keliru
+    mengembalikan 07:00 UTC (= 14:00 WIB) sehingga reset kuota/leaderboard
+    harian mundur 14 jam.
+    """
+    return datetime(year, month, day, tzinfo=TZ_WIB)
 
 
 def iso(value: datetime | date | None) -> Optional[str]:

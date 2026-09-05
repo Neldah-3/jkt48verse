@@ -3,11 +3,11 @@
 import random
 import secrets
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import and_, asc, desc, func, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_session
@@ -170,14 +170,14 @@ async def _guess_view(session: AsyncSession, gid: str) -> Optional[dict]:
         return None
     g = await session.get(GuessQuestion, (s.question_ids or [])[s.current_index])
     m = await session.get(Member, g.member_id)
-    others = (
+    others_rows = (
         await session.execute(
             select(Member.id, Member.name)
             .where(Member.status.in_(["regular", "trainee"]), Member.id != m.id)
             .limit(200)
         )
     ).all()
-    others = _shuffle(others)[:5]
+    others = [{"id": r.id, "name": r.name} for r in _shuffle(others_rows)[:5]]
     seed = (s.question_ids or [])[s.current_index] % 6
     opts = [*others[:seed], {"id": m.id, "name": m.name}, *others[seed:]]
     import re as _re
@@ -192,7 +192,7 @@ async def _guess_view(session: AsyncSession, gid: str) -> Optional[dict]:
         "jiko": jiko,
         "hints": (g.hints or [])[: s.hints_used],
         "hintsUsed": s.hints_used,
-        "options": [{"id": o.id, "name": o.name} for o in opts],
+        "options": [{"id": o["id"], "name": o["name"]} for o in opts],
         "index": s.current_index,
         "total": len(s.question_ids or []),
         "score": s.score,

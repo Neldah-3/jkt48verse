@@ -2,10 +2,10 @@
 
 import re
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 import httpx
-from sqlalchemy import and_, asc, desc, extract, func, or_, select
+from sqlalchemy import and_, asc, extract, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import config

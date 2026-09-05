@@ -128,6 +128,18 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "userId": self.user_id,
+            "hashRefreshToken": self.hash_refresh_token,
+            "device": self.device,
+            "ip": self.ip,
+            "browser": self.browser,
+            "createdAt": self.created_at,
+            "lastUsedAt": self.last_used_at,
+        }
+
 
 class LoginHistory(Base):
     __tablename__ = "login_history"
@@ -145,6 +157,20 @@ class LoginHistory(Base):
     kind: Mapped[str] = mapped_column(String(16), default="member")
     username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "userId": self.user_id,
+            "device": self.device,
+            "ip": self.ip,
+            "browser": self.browser,
+            "loginAt": self.login_at,
+            "userAgentRaw": self.user_agent_raw,
+            "success": self.success,
+            "kind": self.kind,
+            "username": self.username,
+        }
+
 
 class VerificationToken(Base):
     __tablename__ = "verification_tokens"
@@ -159,6 +185,16 @@ class VerificationToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (Index("ix_verification_hash_type", "hash_token", "token_type"),)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "userId": self.user_id,
+            "hashToken": self.hash_token,
+            "tokenType": self.token_type,
+            "expiresAt": self.expires_at,
+            "createdAt": self.created_at,
+        }
 
 
 # =====================================================================
@@ -183,6 +219,8 @@ class Member(Base):
     trivia: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     socials: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     show_birthday: Mapped[bool] = mapped_column(Boolean, default=True)
+    # id eksternal dari jkt48.com (diisi scraper untuk upsert idempoten)
+    external_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -241,6 +279,8 @@ class Schedule(Base):
     ticket_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     flag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # shonichi|senshuuraku
+    # id event/teater dari jkt48.com (diisi scraper untuk upsert idempoten)
+    source_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -292,6 +332,9 @@ class News(Base):
     is_highlighted: Mapped[bool] = mapped_column(Boolean, default=False)
     views: Mapped[int] = mapped_column(Integer, default=0)
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    # sumber eksternal (diisi scraper untuk upsert idempoten)
+    source_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, unique=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 # =====================================================================
