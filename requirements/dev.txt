@@ -6,3 +6,5 @@ autoflake==2.0.0
 pytest
 pytest-asyncio
 httpx
+# icon asset generation (scripts/make_icon.py)
+ Pillow>=10.0
