@@ -121,9 +121,12 @@ class AuthService:
             return user
 
         # Mitigate timing attacks by always performing verification for password-based auth
+        password_hash = (
+            await self.user_repo.get_password_hash(user.userId) if user else None
+        )
         is_valid_password = False
-        if user and user.password:
-            is_valid_password = await self.verify_password(password, user.password)
+        if user and password_hash:
+            is_valid_password = await self.verify_password(password, password_hash)
         else:
             # Fake verification to prevent timing attacks
             fake_hash = "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW"

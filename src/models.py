@@ -101,7 +101,6 @@ class User(Base):
             "email": self.email,
             "ofcStatus": self.ofc_status,
             "bio": self.bio,
-            "password": self.password,
             "provider": self.provider,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
@@ -109,6 +108,9 @@ class User(Base):
             "isPublic": self.is_public,
             "publicYear": self.public_year,
             "isAdmin": self.is_admin,
+            "failedLoginAttempts": self.failed_login_attempts,
+            "isAccountLocked": self.is_account_locked,
+            "accountLockedUntil": self.account_locked_until,
             "role": self.role,
             "oshiIds": [o.member_id for o in self.oshis],
         }
@@ -624,6 +626,20 @@ class Setlist(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "setlistId": self.setlist_id,
+            "imageUrl": self.image_url or "",
+            "title": self.title,
+            "titleJapanese": self.title_japanese,
+            "description": self.description,
+            "type": self.type,
+            "active": self.active,
+            "songs": self.songs or [],
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 
 class Concert(Base):
     __tablename__ = "concerts"
@@ -640,3 +656,17 @@ class Concert(Base):
     benefits: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     ticket_price: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     image: Mapped[str] = mapped_column(Text, default="")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "theme": self.theme,
+            "type": self.type,
+            "date": self.date,
+            "location": self.location,
+            "details": self.details,
+            "benefits": self.benefits or [],
+            "ticket_price": self.ticket_price or [],
+            "image": self.image or "",
+        }

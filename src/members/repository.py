@@ -54,10 +54,22 @@ class MemberRepository:
         search: Optional[str] = None,
         include_inactive: bool = False,
     ) -> int:
-        rows = await self.find_all(
-            generation=generation, search=search, include_inactive=include_inactive, limit=100000
-        )
-        return len(rows)
+        stmt = select(func.count()).select_from(Member)
+        conds = []
+        if not include_inactive:
+            conds.append(Member.status.in_(["regular", "trainee"]))
+        if generation:
+            try:
+                conds.append(Member.generation == int(generation))
+            except (TypeError, ValueError):
+                pass
+        if search:
+            like = f"%{search}%"
+            conds.append(or_(Member.name.ilike(like), Member.nickname.ilike(like)))
+        if conds:
+            stmt = stmt.where(*conds)
+        result = await self.session.execute(stmt)
+        return int(result.scalar() or 0)
 
     async def find_by_slug(self, slug: str) -> Optional[dict]:
         result = await self.session.execute(select(Member).where(Member.slug == slug))

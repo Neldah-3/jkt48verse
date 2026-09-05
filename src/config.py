@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     DEFAULT_REQUESTS_PER_MINUTE: int = 120
     LIVE_PROXY_REQUESTS_PER_MINUTE: int = 1500
     LIVE_CACHE_TTL_SECONDS: int = 10
+    # Hanya aktifkan bila aplikasi benar-benar berada di belakang reverse proxy
+    # terpercaya (mis. Cloudflare) yang selalu menimpa header X-Forwarded-For /
+    # CF-Connecting-IP. Jika tidak, klien dapat memalsukan header ini untuk
+    # melewati rate-limiting.
+    TRUST_PROXY_HEADERS: bool = False
 
     # --- JKT48Verse additions ---
     # AI Search via provider yang kompatibel OpenAI API (default: OpenRouter)
@@ -253,6 +258,10 @@ class Settings(BaseSettings):
     @property
     def auth_requests_per_minute(self) -> int:
         return self.AUTH_REQUESTS_PER_MINUTE
+
+    @property
+    def trust_proxy_headers(self) -> bool:
+        return self.TRUST_PROXY_HEADERS
 
     @property
     def default_requests_per_minute(self) -> int:

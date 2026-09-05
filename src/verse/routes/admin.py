@@ -201,7 +201,9 @@ async def sanction_user(
         except ValueError:
             hours = 24
         until = now + timedelta(hours=hours)
-        dur_label = until.strftime("%d %b %Y %H:%M") + " WIB"
+        dur_label = until.astimezone(
+            timezone(offset=__import__("datetime").timedelta(hours=7))
+        ).strftime("%d %b %Y %H:%M") + " WIB"
 
     if data.kind == "mute":
         user.muted_until = until
