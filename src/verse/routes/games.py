@@ -40,7 +40,7 @@ async def _record_score(session: AsyncSession, user_seq: int, game: str, score: 
     today = wib_date_key()
     streak = user.streak
     bonus = 0
-    if user.last_daily_date != today:
+    if str(user.last_daily_date) != today:
         yesterday = wib_date_key(now_utc() - timedelta(days=1))
         if str(user.last_daily_date) == yesterday:
             streak = user.streak + 1
@@ -124,9 +124,15 @@ class QuizAnswerIn(BaseModel):
 
 
 @router.post("/games/quiz/answer")
-async def answer_quiz(data: QuizAnswerIn, session: AsyncSession = Depends(get_session)):
+async def answer_quiz(
+    data: QuizAnswerIn,
+    viewer: dict = Depends(get_viewer),
+    session: AsyncSession = Depends(get_session),
+):
     s = await session.get(GameSession, data.sessionId)
     if not s or s.finished:
+        return {"ok": False, "error": "Sesi tidak valid."}
+    if s.user_seq is not None and s.user_seq != viewer.get("userId"):
         return {"ok": False, "error": "Sesi tidak valid."}
     qid = (s.question_ids or [])[s.current_index]
     if qid != data.questionId:
@@ -224,9 +230,15 @@ class SessionIn(BaseModel):
 
 
 @router.post("/games/guess/hint")
-async def guess_hint(data: SessionIn, session: AsyncSession = Depends(get_session)):
+async def guess_hint(
+    data: SessionIn,
+    viewer: dict = Depends(get_viewer),
+    session: AsyncSession = Depends(get_session),
+):
     s = await session.get(GameSession, data.sessionId)
     if not s or s.finished:
+        return {"ok": False, "error": "Sesi tidak valid."}
+    if s.user_seq is not None and s.user_seq != viewer.get("userId"):
         return {"ok": False, "error": "Sesi tidak valid."}
     if s.hints_used >= 3:
         return {"ok": False, "error": "Maksimal 3 hint."}
@@ -241,9 +253,15 @@ class GuessAnswerIn(BaseModel):
 
 
 @router.post("/games/guess/answer")
-async def answer_guess(data: GuessAnswerIn, session: AsyncSession = Depends(get_session)):
+async def answer_guess(
+    data: GuessAnswerIn,
+    viewer: dict = Depends(get_viewer),
+    session: AsyncSession = Depends(get_session),
+):
     s = await session.get(GameSession, data.sessionId)
     if not s or s.finished:
+        return {"ok": False, "error": "Sesi tidak valid."}
+    if s.user_seq is not None and s.user_seq != viewer.get("userId"):
         return {"ok": False, "error": "Sesi tidak valid."}
     g = await session.get(GuessQuestion, (s.question_ids or [])[s.current_index])
     m = await session.get(Member, g.member_id)

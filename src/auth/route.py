@@ -46,15 +46,15 @@ from src.logging_config import create_logger
 def _extract_request_info(request: Request):
     user_agent = request.headers.get("user-agent", "")
 
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        ip = cf_ip.strip()
-    else:
-        x_forwarded_for = request.headers.get("x-forwarded-for")
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(",")[0].strip()
+    ip = request.client.host if request.client else "unknown"
+    if config.trust_proxy_headers:
+        cf_ip = request.headers.get("cf-connecting-ip")
+        if cf_ip:
+            ip = cf_ip.strip()
         else:
-            ip = request.client.host if request.client else "unknown"
+            x_forwarded_for = request.headers.get("x-forwarded-for")
+            if x_forwarded_for:
+                ip = x_forwarded_for.split(",")[0].strip()
 
     from user_agents import parse as parse_ua
 
@@ -137,16 +137,21 @@ async def signin_with_email_and_password(
     user = await auth_service.authenticate_user(form_data.username, form_data.password)
 
     # Blokir khusus JKT48Verse (sanksi moderator/admin)
-    from sqlalchemy import func as sa_func, select as sa_select
+    from sqlalchemy import func as sa_func, or_ as sa_or_, select as sa_select
 
     from src.database import database_instance
     from src.models import User as _UserModel
 
+    _ident = form_data.username.lower()
     async with database_instance.session_factory() as _s:
         _row = (
             await _s.execute(
                 sa_select(_UserModel).where(
-                    sa_func.lower(_UserModel.username) == form_data.username.lower()
+                    sa_or_(
+                        sa_func.lower(_UserModel.username) == _ident,
+                        sa_func.lower(_UserModel.email) == _ident,
+                        _UserModel.user_id == _ident,
+                    )
                 )
             )
         ).scalar_one_or_none()
@@ -311,11 +316,11 @@ async def current_viewer(
         if header and header.lower().startswith("bearer "):
             token = header.split(" ", 1)[1]
     if not token:
-        return GUEST_VIEWER
+        return dict(GUEST_VIEWER)
     try:
         token_data = auth_service.verify_access_token(token)
     except Exception:
-        return GUEST_VIEWER
+        return dict(GUEST_VIEWER)
     from sqlalchemy import select
     from src.models import User
 
@@ -323,7 +328,7 @@ async def current_viewer(
         result = await session.execute(select(User).where(User.user_id == token_data.username))
         user = result.scalar_one_or_none()
         if user is None:
-            return GUEST_VIEWER
+            return dict(GUEST_VIEWER)
         return build_viewer(user)
 
 

@@ -218,6 +218,8 @@ async def database_search(session: AsyncSession, question: str) -> dict[str, Any
             e = enc[0]
             content = e.content or ""
             idx = content.lower().find(terms[0])
+            if idx < 0:
+                idx = 0
             snippet = content[max(0, idx - 80) : idx + 260]
             snippet = snippet.replace("#", "").replace("*", "").strip()
             return {

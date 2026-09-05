@@ -58,16 +58,16 @@ async def get_viewer(
         if header and header.lower().startswith("bearer "):
             token = header.split(" ", 1)[1]
     if not token:
-        return GUEST_VIEWER
+        return dict(GUEST_VIEWER)
     try:
         token_data = auth_service.verify_access_token(token)
     except Exception:
-        return GUEST_VIEWER
+        return dict(GUEST_VIEWER)
     # sub JWT berisi user_id (bukan username) — lihat AuthService.create_access_token
     result = await session.execute(select(User).where(User.user_id == token_data.username))
     user = result.scalar_one_or_none()
     if user is None:
-        return GUEST_VIEWER
+        return dict(GUEST_VIEWER)
     return build_viewer(user)
 
 

@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import User, UserOshi
+from src.models import User
 
 
 class UserRepository:
@@ -40,20 +40,6 @@ class UserRepository:
         out.pop("oshiIds", None)
         return out
 
-    async def insert_user(self, user_data: dict):
-        oshi_ids = user_data.get("oshiIds") or []
-        mapped = self._apply_camel(user_data)
-        user = User(**{k: v for k, v in mapped.items() if hasattr(User, k)})
-        self.session.add(user)
-        for oid in oshi_ids:
-            self.session.add(UserOshi(user_id=user.user_id, member_id=str(oid)))
-        try:
-            await self.session.flush()
-        except IntegrityError:
-            await self.session.rollback()
-            raise
-        return user
-
     async def find_one(self, query: dict) -> Optional[dict]:
         stmt = select(User)
         if "$or" in query:
@@ -84,6 +70,12 @@ class UserRepository:
         result = await self.session.execute(select(User).where(User.user_id == user_id))
         user = result.scalar_one_or_none()
         return user.to_dict() if user else None
+
+    async def get_password_hash(self, user_id: str) -> Optional[str]:
+        result = await self.session.execute(
+            select(User.password).where(User.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
 
     async def update_one(self, filter_query: dict, update_data: dict):
         values = update_data.get("$set", update_data)
@@ -139,21 +131,6 @@ class UserRepository:
         user = result.scalar_one_or_none()
         if user:
             user.is_email_verified = True
-            await self.session.flush()
-
-    async def add_oshi_id(self, user_id: str, oshi_id: str):
-        self.session.add(UserOshi(user_id=user_id, member_id=str(oshi_id)))
-        await self.session.flush()
-
-    async def remove_oshi_id(self, user_id: str, oshi_id: str):
-        result = await self.session.execute(
-            select(UserOshi).where(
-                UserOshi.user_id == user_id, UserOshi.member_id == str(oshi_id)
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row:
-            await self.session.delete(row)
             await self.session.flush()
 
     async def set_public_status(
