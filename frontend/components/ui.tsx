@@ -58,6 +58,28 @@ export function Icon({ name, size = 18, ...rest }: { name: IconName; size?: numb
   );
 }
 
+// ---------- Brand logo (identik dengan app/icon.svg) ----------
+export function Logo({ size = 34, className = "", title = "JKT48Verse" }: { size?: number; className?: string; title?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 512 512" role="img" aria-label={title} className={`logo ${className}`.trim()} style={{ flexShrink: 0 }}>
+      <defs>
+        <linearGradient id="jv-logo-bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ff4d6d" />
+          <stop offset="1" stopColor="#b60f2c" />
+        </linearGradient>
+        <radialGradient id="jv-logo-hl" cx="0.2" cy="0.08" r="0.95">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.18" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <rect width="512" height="512" rx="118" fill="url(#jv-logo-bg)" />
+      <rect width="512" height="512" rx="118" fill="url(#jv-logo-hl)" />
+      <rect x="1.5" y="1.5" width="509" height="509" rx="116.5" fill="none" stroke="#fff" strokeOpacity="0.12" strokeWidth="3" />
+      <path d="M190 151v168a42 42 0 0 1-84 0M273 151l66 210 66-210" fill="none" stroke="#fff" strokeWidth="60" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // ---------- Avatar ----------
 export function initials(name: string) {
   return name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");

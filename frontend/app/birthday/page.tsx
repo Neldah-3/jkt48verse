@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Avatar, Disclaimer, Empty, GenChips, Icon, PageHead, Tag } from "@/components/ui";
+import { Avatar, Disclaimer, Empty, GenChips, Icon, Logo, PageHead, Tag } from "@/components/ui";
 import { Countdown, WishForm } from "@/components/BirthdayBits";
 import { birthdayThisWeek, birthdayToday, birthdaysInMonth, wishesFor } from "@/lib/data";
 import { getViewer } from "@/lib/auth";
@@ -39,7 +39,7 @@ export default async function BirthdayPage({ searchParams }: { searchParams: Pro
                   <Link href={`/member/${m.slug}`} className="btn ghost sm">Profil</Link>
                 </div>
                 <div className="card w">
-                  <div className="flex items-center gap-2"><span className="brand" style={{ width: 28, height: 28, fontSize: 10 }}>jv</span><b className="text-[13px]">Ucapan dari JKT48Verse</b><span className="tag t-gray ml-auto">Sistem</span></div>
+                  <div className="flex items-center gap-2"><Logo size={28} /><b className="text-[13px]">Ucapan dari JKT48Verse</b><span className="tag t-gray ml-auto">Sistem</span></div>
                   <p className="text-[13.5px] italic">“Selamat ulang tahun, {m.nickname}! Semoga tahun ini penuh panggung yang bersinar, kesehatan, dan kebahagiaan. Terima kasih sudah selalu memberi energi untuk kami semua. 🎉”</p>
                 </div>
                 <div className="card w">

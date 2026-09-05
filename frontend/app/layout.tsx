@@ -9,12 +9,16 @@ import { listNotifications, ready, unreadCount } from "@/lib/data";
 export const metadata: Metadata = {
   title: { default: "JKT48Verse — Fan-made Platform", template: "%s · JKT48Verse" },
   description: "Platform komunitas penggemar JKT48: live member, jadwal, news, birthday, games, chat, dan AI search. Proyek non-komersial, tidak berafiliasi dengan JKT48 Operation Team.",
+  applicationName: "JKT48Verse",
+  // Icon (favicon.ico, icon.svg, apple-icon.png) otomatis dari file di app/ — lihat scripts/gen-icons.mjs
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "JKT48Verse", statusBarStyle: "default" },
 };
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#ffffff" }, { media: "(prefers-color-scheme: dark)", color: "#151a22" }],
+  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#e01b3c" }, { media: "(prefers-color-scheme: dark)", color: "#151a22" }],
 };
 export const dynamic = "force-dynamic";
 
