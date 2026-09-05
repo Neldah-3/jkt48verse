@@ -33,10 +33,14 @@ export async function registerAction(_: unknown, form: FormData): Promise<Action
 export async function loginAction(_: unknown, form: FormData): Promise<ActionResult> {
   const username = String(form.get("username") ?? "").trim();
   const password = String(form.get("password") ?? "");
+  // Code akses opsional di form ini (wajib hanya untuk akun Admin/Moderator).
+  const accessCode = String(form.get("accessCode") ?? "");
+  const body = new URLSearchParams({ username, password });
+  if (accessCode) body.set("access_code", accessCode);
   const res = await apiFetch("/auth/signin", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ username, password }).toString(),
+    body: body.toString(),
   });
   if (!res.ok) {
     const b = (await res.json().catch(() => ({}))) as { detail?: string };
@@ -48,11 +52,13 @@ export async function loginAction(_: unknown, form: FormData): Promise<ActionRes
 
 export async function staffLoginAction(_: unknown, form: FormData): Promise<ActionResult> {
   const username = String(form.get("username") ?? "").trim();
+  // Code akses TIDAK di-trim: besar/kecil huruf, spasi, dan karakter dihitung persis.
   const password = String(form.get("password") ?? "");
+  const accessCode = String(form.get("accessCode") ?? "");
   const res = await apiFetch("/auth/signin", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ username, password }).toString(),
+    body: new URLSearchParams({ username, password, access_code: accessCode }).toString(),
   });
   if (!res.ok) {
     const b = (await res.json().catch(() => ({}))) as { detail?: string };

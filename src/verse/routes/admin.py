@@ -251,3 +251,47 @@ async def admin_stats(
         await session.execute(select(func.count()).select_from(Report).where(Report.status == "pending"))
     ).scalar() or 0
     return {"admins": admins, "moderators": moderators, "pendingReports": pending}
+
+
+# =====================================================================
+# KREDENSIAL STAFF (3 Admin + 10 Moderator) — status slot env
+# =====================================================================
+@router.get("/admin/credentials")
+async def credential_slots(viewer: dict = Depends(require_admin)):
+    """Status tiap slot kredensial: aktif (4/4 lengkap) atau false + alasannya."""
+    from src.auth import staff_credentials
+
+    return {
+        "ok": True,
+        "summary": staff_credentials.summary(),
+        "slots": staff_credentials.report(),
+    }
+
+
+@router.post("/admin/credentials/reload")
+async def reload_credentials(viewer: dict = Depends(require_admin)):
+    """Baca ulang environment tanpa restart (setelah mengubah .env)."""
+    from src.auth import staff_credentials
+
+    staff_credentials.reload()
+    return {"ok": True, "summary": staff_credentials.summary()}
+
+
+# =====================================================================
+# ROUTER API KEY LLM — monitoring anti-limit
+# =====================================================================
+@router.get("/admin/ai/keys")
+async def llm_key_stats(viewer: dict = Depends(require_admin)):
+    """Statistik router API key: key mana yang sehat, mana yang sedang cooldown."""
+    from src.verse.llm_router import get_router
+
+    return {"ok": True, "data": get_router().stats()}
+
+
+@router.post("/admin/ai/keys/reload")
+async def reload_llm_keys(viewer: dict = Depends(require_admin)):
+    """Baca ulang LLM_API_KEYS dari environment tanpa restart."""
+    from src.verse.llm_router import get_router, reset_router
+
+    reset_router()
+    return {"ok": True, "data": get_router().stats()}

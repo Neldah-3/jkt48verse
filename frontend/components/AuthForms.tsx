@@ -23,6 +23,11 @@ export function LoginForm({ next }: { next?: string }) {
       <input type="hidden" name="next" value={next ?? "/"} />
       <div><label className="label">Username atau Email</label><input name="username" className="input" required autoComplete="username" /></div>
       <div><label className="label">Password</label><input name="password" type="password" className="input" required autoComplete="current-password" /></div>
+      <div>
+        <label className="label">Code Akses <span className="muted">(khusus Admin/Moderator)</span></label>
+        <input name="accessCode" className="input" autoComplete="off" spellCheck={false} />
+        <p className="muted text-[10.5px] mt-1">Kosongkan bila kamu user biasa. Dibaca persis: besar/kecil huruf & karakter dihitung.</p>
+      </div>
       <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" name="remember" defaultChecked /> Ingat saya (30 hari)</label>
       {!state.ok && <p className="text-primary text-[12.5px]">{state.error}</p>}
       <SubmitButton label="Masuk" pendingLabel="Masuk…" />
@@ -52,9 +57,17 @@ export function StaffLoginForm() {
     <form action={action} className="flex flex-col gap-3">
       <div><label className="label">Username Staff</label><input name="username" className="input" required autoComplete="off" /></div>
       <div><label className="label">Password</label><input name="password" type="password" className="input" required autoComplete="off" /></div>
+      <div>
+        <label className="label">Code Akses</label>
+        <input name="accessCode" className="input" required autoComplete="off" spellCheck={false} />
+        <p className="muted text-[10.5px] mt-1">Dibaca persis: besar/kecil huruf, spasi, dan karakter dihitung.</p>
+      </div>
       {!state.ok && <p className="text-primary text-[12.5px]">{state.error}</p>}
       <SubmitButton label="Masuk Panel" pendingLabel="Memverifikasi…" />
-      <p className="muted text-[11px]">Akun ADMIN/MODERATOR dikelola di database server (bukan file kredensial lagi).</p>
+      <p className="muted text-[11px]">
+        Login staff butuh username + password + code akses. Kalau salah satu kredensial di server tidak lengkap,
+        akun otomatis nonaktif dan tidak bisa masuk.
+      </p>
     </form>
   );
 }

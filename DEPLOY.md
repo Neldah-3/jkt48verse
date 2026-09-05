@@ -26,7 +26,7 @@ Semua akses data frontend melalui API FastAPI (cookie auth diteruskan server-sid
   - `DATABASE_URL` — string koneksi Supabase.
   - `REDIS_URL` — Redis sungguhan (mis. Upstash `redis://...`); WAJIB di produksi.
   - `SECRET_KEY` — kunci JWT acak (`openssl rand -hex 32`).
-  - `LLM_API_KEY` / `LLM_BASE_URL=https://openrouter.ai/api/v1` / `LLM_MODEL` — AI Search via OpenRouter (opsional; tanpa ini AI Search fallback mode DB).
+  - `LLM_API_KEYS` / `LLM_BASE_URL=https://openrouter.ai/api/v1` / `LLM_MODEL` — AI Search via OpenRouter (opsional; tanpa ini AI Search fallback mode DB). Bisa banyak key, cukup satu: **router multi-key** memakainya bergiliran (lihat bagian 4).
   - `RESEND_API_KEY` + `MAIL_FROM` — kirim email OTP via Resend (opsional; tanpa ini kode OTP ditulis ke log backend untuk development).
 - Pastikan CORS mengizinkan origin frontend bila ada pemanggilan langsung dari browser (normalnya tidak perlu — semua lewat server Next).
 
@@ -35,6 +35,71 @@ Semua akses data frontend melalui API FastAPI (cookie auth diteruskan server-sid
 2. Environment variable:
    - `API_BASE_URL` = `https://<domain-backend>/api`
 3. Deploy. Semua route halaman + server action memanggil backend dengan meneruskan cookie, jadi auth berjalan first-party tanpa CORS.
+
+## 4. Kredensial staff: 3 Admin + 10 Moderator (all-or-nothing)
+
+Akun staff tidak lagi diketik di database, melainkan di environment — lalu
+disinkronkan ke tabel `users` oleh seeder:
+
+```bash
+python scripts/seed.py --staff
+```
+
+Penamaan env (isi yang diperlukan saja; sisanya biarkan kosong = `false`):
+
+```
+ADMIN_1_USERNAME=   ADMIN_1_EMAIL=   ADMIN_1_PASSWORD=   ADMIN_1_ACCESS_CODE=
+ADMIN_2_USERNAME=   ADMIN_2_EMAIL=   ADMIN_2_PASSWORD=   ADMIN_2_ACCESS_CODE=
+ADMIN_3_USERNAME=   ADMIN_3_EMAIL=   ADMIN_3_PASSWORD=   ADMIN_3_ACCESS_CODE=
+MOD_1_USERNAME=     MOD_1_EMAIL=     MOD_1_PASSWORD=     MOD_1_ACCESS_CODE=
+... sampai MOD_10_*
+```
+
+Aturan kerasnya:
+
+1. **Satu slot butuh 4 nilai sekaligus**: `_USERNAME` + `_EMAIL` + `_PASSWORD`
+   + `_ACCESS_CODE`.
+2. Kalau **satu saja kosong** ⇒ slot bernilai `false` (nonaktif). User-nya
+   tidak dibuat, dan kalau sudah ada di database akan **dinonaktifkan** sampai
+   slot-nya dilengkapi.
+3. Nilai dicocokkan **100% persis** saat login: besar/kecil huruf, spasi, dan
+   karakter apa pun ikut terhitung (tidak di-trim, tidak di-lowercase).
+4. **Tidak wajib mengisi semua slot** — cukup satu user yang lengkap. Yang
+   tidak dipakai biarkan kosong (otomatis `false`).
+5. Login staff wajib mengirim `access_code` (field form) di samping username
+   dan password. Salah code → gagal masuk dan dihitung sebagai percobaan gagal.
+
+Pantau status tiap slot (aktif/`false` + field yang kurang) lewat
+`GET /api/admin/credentials` atau kartu **Kredensial Staff** di halaman Admin.
+Setelah mengubah env, cukup jalankan ulang `python scripts/seed.py --staff`
+atau panggil `POST /api/admin/credentials/reload`.
+
+## 5. Router API key AI (1 base URL, 1 model, banyak key)
+
+AI chat (AI Search) dan **block chat** (moderasi AI) memakai kumpulan API key
+yang sama. Supaya tidak cepat limit:
+
+```
+LLM_API_KEYS=sk-or-v1-aaa,sk-or-v1-bbb,sk-or-v1-ccc   # paling mudah
+LLM_BASE_URL=https://openrouter.ai/api/v1             # TETAP satu
+LLM_MODEL=meta-llama/llama-3.1-8b-instruct            # TETAP satu
+LLM_MODERATION_ENABLED=true                           # set false utk hemat token
+```
+
+Cara kerja router (`src/verse/llm_router.py`):
+
+* Permintaan dibagi **round-robin** ke semua key → beban merata.
+* Key yang kena **429** (limit) atau **5xx** masuk **cooldown sementara**
+  (`LLM_KEY_COOLDOWN_SECONDS`, default 60 detik) dan dilewati; permintaan
+  otomatis lanjut ke key berikutnya dalam panggilan yang sama.
+* Key invalid (**401/403**) diistirahatkan lebih lama
+  (`LLM_KEY_INVALID_COOLDOWN_SECONDS`, default 15 menit) lalu dicoba lagi.
+* Moderasi AI **fail-open**: kalau LLM error/timeout, pesan tetap diizinkan
+  (chat tidak pernah lumpuh gara-gara AI).
+
+Pantau kesehatan key lewat `GET /api/admin/ai/keys` atau kartu
+**Router API Key AI** di halaman Admin. Untuk memuat ulang key tanpa restart:
+`POST /api/admin/ai/keys/reload`.
 
 ## Akun seed (ganti setelah deploy)
 - `admin` / `AdminJKT48verse2026` · `moderator` / `ModeratorJKT48verse2026` · `fansdemo` / `FansDemoJKT48verse2026`

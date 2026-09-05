@@ -110,4 +110,14 @@ async def ai_feedback(
 
 @router.get("/ai/configured")
 async def ai_configured():
-    return {"configured": ai.llm_configured()}
+    """Status AI: cukup 1 key saja yang dibutuhkan; sisanya jadi cadangan anti-limit."""
+    from src.verse.llm_router import get_router
+
+    router = get_router()
+    return {
+        "configured": router.configured,
+        "keys": router.key_count,
+        "model": config.llm_model,
+        "baseUrl": config.llm_base_url,
+        "moderation": ai.moderation_enabled(),
+    }
