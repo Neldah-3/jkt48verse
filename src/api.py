@@ -20,6 +20,6 @@ router.include_router(verse_router, tags=["JKT48Verse"])
 # Live proxy (ShowRoom / IDN) — modul legacy yang masih relevan
 router.include_router(live_router, prefix="/jkt48/live", tags=["Live"])
 
-# Legacy MyPage48 (opsional; tabel setlists & concerts)
+# Legacy JKT48Verse (opsional; tabel setlists & concerts)
 router.include_router(setlists_router, prefix="/theater/setlists", tags=["Setlists"])
 router.include_router(concerts_router, prefix="/theater/concerts", tags=["Concerts"])

@@ -1,7 +1,7 @@
 """JKT48Verse canonical schema
 
 - users: tambah kolom komunitas (role, avatar_seed, theme, notif, poin, sanksi) + seq
-- anggota/news/schedule: bentuk kanonik JKT48Verse (menggantikan tabel legacy MyPage48)
+- anggota/news/schedule: bentuk kanonik JKT48Verse (menggantikan tabel legacy)
 - tabel baru: chat, games, encyclopedia, glossary, motivations, notifications,
   bookmarks, birthday wishes, reports, moderation, contributors, activity, app_meta
 
@@ -53,7 +53,7 @@ def upgrade() -> None:
     op.add_column("login_history", sa.Column("kind", sa.String(16), nullable=False, server_default="member"))
     op.add_column("login_history", sa.Column("username", sa.String(64), nullable=True))
 
-    # ---------- DROP legacy (data lama MyPage48; scraper bisa re-seed) ----------
+    # ---------- DROP legacy (data skema lama; scraper bisa re-seed) ----------
     op.drop_table("user_oshis")
     op.drop_table("event_members")
     op.drop_table("events")

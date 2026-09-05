@@ -94,7 +94,7 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     LOG_DESTINATION: str = "console"
-    LOG_PATH: str = "/tmp/mypage48/"
+    LOG_PATH: str = "/tmp/jkt48verse/"
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=True
