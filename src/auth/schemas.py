@@ -3,7 +3,11 @@ from typing import List, Optional
 
 from pydantic import BaseModel, field_validator, model_serializer, model_validator
 
-from src.auth.http_exceptions import PasswordPolicyViolation, PasswordsNotMatch
+from src.auth.http_exceptions import (
+    PasswordPolicyViolation,
+    PasswordPolicyViolationSimple,
+    PasswordsNotMatch,
+)
 from src.utils import validate_password_strength
 
 
@@ -162,6 +166,50 @@ class PasswordResetConfirmRequest(BaseModel):
 
 class PasswordResetConfirmResponse(BaseModel):
     message: str
+
+
+# Password Reset via OTP (JKT48Verse)
+class ForgotPasswordOtpRequest(BaseModel):
+    email: str
+
+
+class ForgotPasswordOtpResponse(BaseModel):
+    message: str
+    devCode: Optional[str] = None
+
+
+class VerifyResetOtpRequest(BaseModel):
+    email: str
+    code: str
+
+
+class VerifyResetOtpResponse(BaseModel):
+    message: str
+    valid: bool
+    resetToken: Optional[str] = None
+
+
+class ResetPasswordOtpRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def verify_password_match(self):
+        if self.new_password != self.confirm_password:
+            raise PasswordsNotMatch()
+
+        # Konsisten dengan kebijakan signup JKT48Verse: minimal 8 karakter.
+        if len(self.new_password) < 8 or len(self.new_password) > 64:
+            raise PasswordPolicyViolationSimple()
+
+        return self
+
+
+class ResetPasswordOtpResponse(BaseModel):
+    message: str
+    success: bool
 
 
 # Security Schemas

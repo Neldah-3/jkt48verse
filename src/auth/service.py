@@ -434,6 +434,110 @@ class AuthService:
         await self.user_repo.set_email_verified(user.userId)
         return True, "Email berhasil diverifikasi. Silakan login."
 
+    # ------------------------------------------------------------------
+    # JKT48Verse: lupa password + reset password via OTP 6 digit
+    # ------------------------------------------------------------------
+    RESET_OTP_TYPE = "reset_otp"
+    RESET_OTP_MINUTES = 10
+
+    def _can_reset_password(self, user) -> bool:
+        """Akun staff (kredensial dari ENV) & akun seed tidak boleh reset via OTP."""
+        if user.provider == staff_credentials.PROVIDER:
+            return False
+        if user.provider == "seed" and not self.config.is_env_dev:
+            return False
+        return True
+
+    async def create_password_reset_otp(self, email: str) -> Optional[dict]:
+        """Buat OTP reset password 6 digit (berlaku 10 menit) & kirim via email.
+
+        Return None bila email tidak terdaftar / tidak berhak (jangan bocorkan
+        keberadaan akun ke pemanggil endpoint).
+        """
+        try:
+            user = await self.get_user(email)
+            if not user or not self._can_reset_password(user):
+                return None
+
+            import secrets as _secrets
+
+            code = f"{_secrets.randbelow(1_000_000):06d}"
+            code_hash = self.hash_token(code)
+            await self.security_service.save_token(
+                user.userId, code_hash, self.RESET_OTP_TYPE, self.RESET_OTP_MINUTES / 60
+            )
+            sent = await self.email_service.send_password_reset_otp(
+                user.email, code, user.username
+            )
+            return {"code": code, "sent": sent}
+        except Exception as e:
+            logger.exception(f"Error creating password reset OTP: {str(e)}")
+            raise AuthOperationError()
+
+    async def _consume_reset_otp(self, email: str, code: str):
+        """Validasi & hapus OTP reset. Return user bila valid, selain itu None."""
+        user = await self.get_user(email)
+        if not user or not self._can_reset_password(user):
+            return None
+        code_hash = self.hash_token((code or "").strip())
+        token_data = await self.security_service.verify_token(
+            code_hash, self.RESET_OTP_TYPE
+        )
+        if not token_data or token_data.get("userId") != user.userId:
+            return None
+        await self.security_service.delete_token(code_hash, self.RESET_OTP_TYPE)
+        return user
+
+    async def verify_password_reset_otp(
+        self, email: str, code: str
+    ) -> tuple[bool, str, Optional[str]]:
+        """Verifikasi OTP reset → terbitkan token reset sekali pakai (1 jam).
+
+        Return (ok, pesan, reset_token).
+        """
+        try:
+            user = await self._consume_reset_otp(email, code)
+            if user is None:
+                return False, "Kode OTP tidak valid atau kedaluwarsa.", None
+            reset_token = await self.security_service.create_and_save_token(
+                user.userId,
+                "password_reset",
+                self.config.password_reset_expire_hours,
+            )
+            return True, "Kode OTP valid. Silakan atur password baru.", reset_token
+        except Exception as e:
+            logger.exception(f"Error verifying password reset OTP: {str(e)}")
+            raise AuthOperationError()
+
+    async def reset_password_with_otp(
+        self, email: str, code: str, new_password: str
+    ) -> tuple[bool, str]:
+        """Reset password langsung memakai email + kode OTP (satu langkah)."""
+        try:
+            user = await self._consume_reset_otp(email, code)
+            if user is None:
+                return False, "Kode OTP tidak valid atau kedaluwarsa."
+
+            hashed_password = await self.get_password_hash(new_password)
+            await self.user_repo.update_one(
+                {"userId": user.userId},
+                {"$set": {"password": hashed_password}},
+            )
+
+            # Cabut seluruh sesi aktif + buka kunci akun
+            await self.auth_repo.delete_user_refresh_tokens(user.userId)
+            await self.security_service.reset_failed_login_attempts(user.userId)
+            await self.security_service.unlock_account(user.userId)
+            # Token reset berbasis link yang masih tersisa ikut hangus
+            await self.auth_repo.delete_verification_tokens_by_user(
+                user.userId, "password_reset"
+            )
+
+            return True, "Password berhasil direset. Silakan login dengan password baru."
+        except Exception as e:
+            logger.exception(f"Error resetting password with OTP: {str(e)}")
+            raise AuthOperationError()
+
     async def resend_email_otp(self, email: str) -> Optional[dict]:
         """Kirim ulang OTP. Bila Resend belum diatur & ENV=dev → kembalikan devCode."""
         user = await self.get_user(email)
