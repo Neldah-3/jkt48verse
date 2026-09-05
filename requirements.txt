@@ -1,3 +1,46 @@
-# Entry point untuk installer produksi (dipakai juga build default Render:
-# `pip install -r requirements.txt`). Konten sebenarnya di requirements/.
--r requirements/prod.txt
+# Dependensi lengkap untuk produksi (dipakai build default Render:
+# `pip install -r requirements.txt`).
+# Daftar ini adalah salinan gabungan `requirements/base.txt` + `requirements/prod.txt`
+# (base + gunicorn). Jika mengubah requirements/, sinkronkan juga file ini.
+# Dev/test tools (pytest, black, dsb.) ada di `requirements/dev.txt`.
+
+# --- Web server / framework ---
+fastapi==0.111.0
+uvicorn==0.34.0
+gunicorn
+
+# --- Konfigurasi / env ---
+python-dotenv==1.0.1
+pydantic-settings==2.7.0
+
+# --- Database & cache ---
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+psycopg[binary]==3.2.3
+redis==5.2.1
+
+# --- HTTP client / scraping ---
+httpx==0.27.2
+requests==2.32.3
+curl_cffi>=0.14.0
+beautifulsoup4>=4.12.0
+user-agents==2.2.0
+
+# --- Auth & keamanan ---
+python-jose[cryptography]
+passlib==1.7.4
+bcrypt==4.1.3
+itsdangerous==2.1.2
+cryptography>=42.0.0
+password-validator==1.0
+email-validator==2.0.0
+slowapi==0.1.9
+
+# --- Util ---
+python-dateutil==2.8.2
+python-multipart
+tqdm>=4.66.0
+
+# --- Integrasi eksternal ---
+resend==2.11.0

@@ -27,8 +27,9 @@ Semua akses data frontend melalui API FastAPI (cookie auth diteruskan server-sid
    terbaru dengan snapshot historis tanpa meninjau isinya.
 
 ## 2. Backend FastAPI (Railway / Render / Fly.io / VPS)
-- Build command: `pip install -r requirements.txt` (file root merujuk ke
-  `requirements/prod.txt`). Versi Python dikunci ke 3.12 lewat `.python-version`.
+- Build command: `pip install -r requirements.txt` (daftar lengkap produksi
+  di root — salinan `requirements/base.txt` + `gunicorn`; sinkronkan bila
+  `requirements/` berubah). Versi Python dikunci ke 3.12 lewat `.python-version`.
 - Start command: `uvicorn src.main:app --host 0.0.0.0 --port $PORT` (tanpa `--reload`).
 - Environment variables (lihat `.env.example`):
   - `ENV=prod` — wajib untuk mengaktifkan hardening produksi.
