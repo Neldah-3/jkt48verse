@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
@@ -118,6 +118,7 @@ logger = create_logger("auth", __name__)
 async def signin_with_email_and_password(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
+    access_code: str = Form(default=""),
     response: Response = None,
     auth_service: AuthService = Depends(get_auth_service),
     config: Settings = Depends(get_settings),
@@ -125,9 +126,14 @@ async def signin_with_email_and_password(
     """
     Sign in using email and password. Returns an access token and sets a refresh token cookie.
 
+    Akun staff (slot ADMIN_n / MOD_n di environment) WAJIB mengirim field
+    ``access_code``. Slot yang tidak lengkap (username/email/password/code akses
+    tidak 4/4) otomatis nonaktif (false) dan tidak bisa login sampai dilengkapi.
+
     Parameters:
         request (Request): FastAPI request object.
         form_data (OAuth2PasswordRequestForm): Form data containing username and password.
+        access_code (str): Code akses staff (opsional untuk user biasa).
         response (Response): FastAPI response object (used to set cookies).
 
     Returns:
@@ -135,6 +141,23 @@ async def signin_with_email_and_password(
     """
 
     user = await auth_service.authenticate_user(form_data.username, form_data.password)
+
+    # --- Gerbang kredensial staff: code akses wajib & harus sama persis ---
+    from src.auth import staff_credentials
+
+    gate = staff_credentials.gate_login(user.username, user.email, access_code)
+    if gate is not None:
+        status_code = 403 if gate.code == "SLOT_INCOMPLETE" else 401
+        logger.warning(f"[staff] login ditolak untuk '{user.username}' ({gate.code}): {gate.message}")
+        if gate.code != "SLOT_INCOMPLETE":
+            # hitung sebagai percobaan gagal (maks MAX_LOGIN_ATTEMPTS)
+            try:
+                await auth_service.security_service.handle_failed_login(
+                    user.userId, user.email, user.username
+                )
+            except Exception as exc:  # jangan sampai gagal login malah 500
+                logger.warning(f"handle_failed_login error: {exc}")
+        raise HTTPException(status_code=status_code, detail=gate.message)
 
     # Blokir khusus JKT48Verse (sanksi moderator/admin)
     from sqlalchemy import func as sa_func, or_ as sa_or_, select as sa_select

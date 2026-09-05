@@ -1,10 +1,14 @@
-"""AI Search: mode database (intent) + mode LLM (OpenRouter & kompatibel OpenAI API)."""
+"""AI Search: mode database (intent) + mode LLM (OpenRouter & kompatibel OpenAI API).
+
+Semua panggilan LLM (AI chat **dan** block chat) lewat ``src.verse.llm_router``
+supaya beban tersebar ke banyak API key — base URL & model tetap satu.
+"""
 
 import re
+from collections import OrderedDict
 from datetime import timedelta
-from typing import Any
+from typing import Any, Optional
 
-import httpx
 from sqlalchemy import and_, asc, extract, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +16,8 @@ from src.config import config
 from src.logging_config import create_logger
 from src.models import Encyclopedia, Glossary, Member, Motivation, News, Schedule
 from src.verse.helpers import wib_midnight, wib_parts
+from src.verse.llm_router import LLMError, get_router, reset_router
+from src.verse.moderation import normalize_text
 
 logger = create_logger("verse_ai", __name__)
 
@@ -243,7 +249,18 @@ async def database_search(session: AsyncSession, question: str) -> dict[str, Any
 
 
 def llm_configured() -> bool:
-    return bool(config.llm_api_key)
+    """True bila minimal satu API key LLM terpasang."""
+    return get_router().configured
+
+
+def llm_key_count() -> int:
+    return get_router().key_count
+
+
+def reload_llm_router() -> None:
+    """Baca ulang LLM_API_KEY(S) dari environment (tanpa restart)."""
+    reset_router()
+    get_router()
 
 
 async def llm_search(session: AsyncSession, question: str) -> dict[str, Any]:
@@ -257,38 +274,36 @@ async def llm_search(session: AsyncSession, question: str) -> dict[str, Any]:
             "fallback": True,
             "model": "belum dikonfigurasi",
             "answer": (
-                "Mode LLM belum aktif di server ini (atur LLM_API_KEY, LLM_BASE_URL, LLM_MODEL "
-                f"di file .env; default provider: OpenRouter). Sementara itu, hasil dari Database AI: {db_ctx['answer']}"
+                "Mode LLM belum aktif di server ini (atur LLM_API_KEYS / LLM_API_KEY, "
+                "LLM_BASE_URL, LLM_MODEL di file .env; default provider: OpenRouter). "
+                f"Sementara itu, hasil dari Database AI: {db_ctx['answer']}"
             ),
         }
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            res = await client.post(
-                f"{config.llm_base_url.rstrip('/')}/chat/completions",
-                headers={
-                    "content-type": "application/json",
-                    "authorization": f"Bearer {config.llm_api_key}",
+        text = await get_router().chat(
+            messages=[
+                {"role": "system", "content": config.llm_system_prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Konteks database (mungkin kosong): {db_ctx['answer']}\n\n"
+                        f"Pertanyaan: {question}"
+                    ),
                 },
-                json={
-                    "model": config.llm_model,
-                    "temperature": config.llm_temperature,
-                    "messages": [
-                        {"role": "system", "content": config.llm_system_prompt},
-                        {
-                            "role": "user",
-                            "content": f"Konteks database (mungkin kosong): {db_ctx['answer']}\n\nPertanyaan: {question}",
-                        },
-                    ],
-                },
-            )
-            data = res.json()
-            text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
-            if not text:
-                raise RuntimeError((data.get("error") or {}).get("message", "Respon kosong"))
-            return {
-                "mode": "llm", "question": question, "confidence": 0.7,
-                "sources": db_ctx["sources"], "model": config.llm_model, "answer": text,
-            }
+            ],
+            temperature=config.llm_temperature,
+        )
+        return {
+            "mode": "llm", "question": question, "confidence": 0.7,
+            "sources": db_ctx["sources"], "model": config.llm_model, "answer": text,
+        }
+    except LLMError as e:
+        logger.warning(f"LLM search gagal (semua key): {e}")
+        return {
+            "mode": "llm", "question": question, "confidence": 0.3,
+            "sources": db_ctx["sources"], "model": config.llm_model, "fallback": True,
+            "answer": f"LLM tidak dapat dihubungi ({e}). Hasil Database AI: {db_ctx['answer']}",
+        }
     except Exception as e:
         logger.warning(f"LLM search gagal: {e}")
         return {
@@ -296,3 +311,80 @@ async def llm_search(session: AsyncSession, question: str) -> dict[str, Any]:
             "sources": db_ctx["sources"], "model": config.llm_model, "fallback": True,
             "answer": f"LLM tidak dapat dihubungi ({e}). Hasil Database AI: {db_ctx['answer']}",
         }
+
+
+# =====================================================================
+# BLOCK CHAT — moderasi AI (layer 2) memakai router yang sama
+# =====================================================================
+MODERATION_SYSTEM_PROMPT = (
+    "Kamu moderator chat komunitas fans JKT48. Balas HANYA satu baris: "
+    "'ALLOW' bila pesan aman, atau 'BLOCK|<alasan singkat maksimal 8 kata>' bila melanggar. "
+    "Blokir hanya untuk: hinaan/kata kasar, pelecehan, body shaming, spam/iklan, "
+    "link mencurigakan, konten dewasa, atau SARA. "
+    "JANGAN blokir: kritik sopan, istilah wota, bahasa gaul, candaan ringan, "
+    "nama member, atau percakapan biasa antar fans."
+)
+
+#: cache keputusan (hemat token): teks ternormalisasi -> (blocked, reason)
+_MOD_CACHE: "OrderedDict[str, tuple[bool, Optional[str]]]" = OrderedDict()
+_MOD_CACHE_MAX = 512
+
+
+def moderation_enabled() -> bool:
+    """Moderasi AI aktif bila di-enable dan ada minimal satu API key."""
+    return bool(config.llm_moderation_enabled) and get_router().configured
+
+
+def _cache_put(key: str, value: tuple[bool, Optional[str]]) -> None:
+    _MOD_CACHE[key] = value
+    _MOD_CACHE.move_to_end(key)
+    while len(_MOD_CACHE) > _MOD_CACHE_MAX:
+        _MOD_CACHE.popitem(last=False)
+
+
+def _parse_verdict(raw: str) -> tuple[bool, Optional[str]]:
+    head = (raw or "").strip().splitlines()
+    first = head[0] if head else ""
+    verdict, _, reason = first.partition("|")
+    blocked = verdict.strip().upper().startswith("BLOCK")
+    return blocked, (reason.strip() or None) if blocked else None
+
+
+async def moderate_text(text: str) -> tuple[bool, Optional[str]]:
+    """Cek satu pesan chat lewat LLM. **Fail-open**: error/timeout = diizinkan.
+
+    Return ``(blocked, reason)``.
+    """
+    if not moderation_enabled():
+        return False, None
+
+    cache_key = normalize_text(text)[:300]
+    if not cache_key:
+        return False, None
+    cached = _MOD_CACHE.get(cache_key)
+    if cached is not None:
+        _MOD_CACHE.move_to_end(cache_key)
+        return cached
+
+    try:
+        raw = await get_router().chat(
+            messages=[
+                {"role": "system", "content": MODERATION_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Pesan: {text[:500]}"},
+            ],
+            temperature=0,
+            max_tokens=64,
+            timeout=config.llm_moderation_timeout_seconds,
+        )
+    except LLMError as e:
+        logger.warning(f"AI moderation dilewati (fail-open): {e}")
+        return False, None
+    except Exception as e:  # jangan pernah memblokir chat gara-gara error
+        logger.warning(f"AI moderation error (fail-open): {e}")
+        return False, None
+
+    result = _parse_verdict(raw)
+    _cache_put(cache_key, result)
+    if result[0]:
+        logger.info(f"[ai-moderation] BLOCK: {result[1]}")
+    return result

@@ -1,3 +1,5 @@
+import os
+import re
 from typing import List, Optional
 
 from pydantic import SecretStr, computed_field, model_validator
@@ -52,10 +54,28 @@ class Settings(BaseSettings):
 
     # --- JKT48Verse additions ---
     # AI Search via provider yang kompatibel OpenAI API (default: OpenRouter)
+    #
+    # ROUTER MULTI API KEY: base URL & model TETAP SATU, yang banyak hanya key-nya.
+    # Cara paling mudah: isi LLM_API_KEYS dengan koma.
+    #   LLM_API_KEYS=sk-or-v1-aaa,sk-or-v1-bbb,sk-or-v1-ccc
+    # Alternatif yang juga didukung (boleh digabung): LLM_API_KEY dan
+    # LLM_API_KEY_1 .. LLM_API_KEY_N. Semua key digabung lalu di-de-dupe.
     LLM_API_KEY: SecretStr = SecretStr("")
+    LLM_API_KEYS: str = ""
+    LLM_API_KEY_MAX_SLOTS: int = 12
     LLM_BASE_URL: str = "https://openrouter.ai/api/v1"
     LLM_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
     LLM_TEMPERATURE: float = 0.3
+    LLM_TIMEOUT_SECONDS: int = 30
+    # Berapa lama sebuah key diistirahatkan setelah kena limit (429) / 5xx.
+    LLM_KEY_COOLDOWN_SECONDS: int = 60
+    # Key invalid (401/403) diistirahatkan lebih lama, lalu dicoba lagi.
+    LLM_KEY_INVALID_COOLDOWN_SECONDS: int = 900
+    # 0 = coba semua key yang tersedia sampai ada yang berhasil.
+    LLM_MAX_ATTEMPTS: int = 0
+    # Moderasi AI untuk block chat (memakai router yang sama).
+    LLM_MODERATION_ENABLED: bool = True
+    LLM_MODERATION_TIMEOUT_SECONDS: int = 8
     LLM_SYSTEM_PROMPT: str = (
         "Kamu asisten komunitas fans JKT48 (JKT48Verse). Jawab hanya seputar JKT48, "
         "48 Group, dan budaya idol. Jika pertanyaan di luar topik, tolak dengan sopan. "
@@ -177,7 +197,56 @@ class Settings(BaseSettings):
 
     @property
     def llm_api_key(self) -> str:
-        return self.LLM_API_KEY.get_secret_value()
+        """Key pertama (kompatibilitas mundur)."""
+        keys = self.llm_api_keys
+        return keys[0] if keys else ""
+
+    @property
+    def llm_api_keys(self) -> List[str]:
+        """Semua API key LLM — digabung dari 3 format env lalu di-de-dupe.
+
+        Format yang didukung (boleh dipakai bersamaan):
+          LLM_API_KEYS=sk-a,sk-b,sk-c      (paling mudah)
+          LLM_API_KEY=sk-a                 (format lama)
+          LLM_API_KEY_1=sk-a … LLM_API_KEY_N
+        """
+        keys: List[str] = []
+
+        def add(value: Optional[str]) -> None:
+            v = (value or "").strip()
+            if v and v not in keys:
+                keys.append(v)
+
+        add(self.LLM_API_KEY.get_secret_value())
+        for part in re.split(r"[,\n;]+", self.LLM_API_KEYS or ""):
+            add(part)
+        for i in range(1, max(0, self.LLM_API_KEY_MAX_SLOTS) + 1):
+            add(os.environ.get(f"LLM_API_KEY_{i}", ""))
+        return keys
+
+    @property
+    def llm_timeout_seconds(self) -> int:
+        return self.LLM_TIMEOUT_SECONDS
+
+    @property
+    def llm_key_cooldown_seconds(self) -> int:
+        return self.LLM_KEY_COOLDOWN_SECONDS
+
+    @property
+    def llm_key_invalid_cooldown_seconds(self) -> int:
+        return self.LLM_KEY_INVALID_COOLDOWN_SECONDS
+
+    @property
+    def llm_max_attempts(self) -> int:
+        return self.LLM_MAX_ATTEMPTS
+
+    @property
+    def llm_moderation_enabled(self) -> bool:
+        return self.LLM_MODERATION_ENABLED
+
+    @property
+    def llm_moderation_timeout_seconds(self) -> int:
+        return self.LLM_MODERATION_TIMEOUT_SECONDS
 
     @property
     def llm_base_url(self) -> str:

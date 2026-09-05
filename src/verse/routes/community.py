@@ -13,7 +13,7 @@ from src.models import (
     ActivityLog, Bookmark, ChatMessage, ChatReaction, Notification,
     Report, ScheduleReminder, User, UserOshi,
 )
-from src.verse import moderation
+from src.verse import ai, moderation
 from src.verse.deps import get_viewer, require_user
 from src.verse.helpers import notification_dict, now_utc
 
@@ -142,6 +142,24 @@ async def send_chat(
             ModerationLog(user_seq=viewer["userId"], kind="MESSAGE_BLOCKED", detail=text[:120])
         )
         return {"ok": False, "error": "Pesan mengandung kata yang tidak diperbolehkan. Mari jaga ruang chat tetap nyaman.", "code": "MESSAGE_BLOCKED"}
+
+    # Layer 2: moderasi AI (router multi API key, fail-open saat LLM bermasalah)
+    if ai.moderation_enabled():
+        ai_blocked, ai_reason = await ai.moderate_text(text)
+        if ai_blocked:
+            session.add(
+                ModerationLog(
+                    user_seq=viewer["userId"],
+                    kind="MESSAGE_BLOCKED_AI",
+                    detail=f"{ai_reason or 'melanggar aturan'} :: {text[:120]}",
+                )
+            )
+            return {
+                "ok": False,
+                "error": f"Pesan diblokir filter AI ({ai_reason or 'melanggar aturan'}). "
+                         "Mari jaga ruang chat tetap nyaman.",
+                "code": "MESSAGE_BLOCKED_AI",
+            }
 
     msg = ChatMessage(
         user_seq=viewer["userId"],

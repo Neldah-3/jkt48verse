@@ -20,6 +20,8 @@ def test_app_imports_and_routes_registered():
         "/api/schedules/upcoming",
         "/api/chat",
         "/api/ai/search",
+        "/api/admin/credentials",
+        "/api/admin/ai/keys",
         "/api/games/leaderboard/daily",
         "/api/motivation/daily",
     ]:

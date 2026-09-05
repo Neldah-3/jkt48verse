@@ -115,6 +115,90 @@ async def seed_users(session) -> None:
 
 
 # =====================================================================
+# STAFF: 3 slot ADMIN + 10 slot MODERATOR (dari environment, all-or-nothing)
+# =====================================================================
+# Aturan: setiap slot butuh USERNAME + EMAIL + PASSWORD + ACCESS_CODE.
+# Kalau satu saja kosong ⇒ slot = False (nonaktif) & akun tidak bisa login.
+# Nilai dibaca persis (besar/kecil huruf & karakter dihitung).
+async def seed_staff(session) -> None:
+    from passlib.context import CryptContext
+
+    from src.auth import staff_credentials
+
+    staff_credentials.reload()  # baca ulang env setiap kali seeder dijalankan
+    ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    print("  Slot kredensial (lengkap 4/4 = aktif, selain itu = false):")
+    for slot in staff_credentials.report():
+        if not slot["defined"]:
+            mark = "·  false  "
+        elif slot["active"]:
+            mark = "✓  AKTIF  "
+        else:
+            mark = "✗  false  "
+        print(f"    {mark} {slot['label']:<8} {slot['reason']}")
+
+    active = staff_credentials.staff_credentials()
+    created = updated = 0
+    for cred in active:
+        row = (
+            await session.execute(
+                select(User).where(
+                    (User.username == cred.username) | (User.email == cred.email)
+                )
+            )
+        ).scalar_one_or_none()
+        if row:
+            row.username = cred.username
+            row.email = cred.email
+            row.role = cred.role
+            row.provider = staff_credentials.PROVIDER
+            row.is_email_verified = True
+            row.is_account_locked = False
+            row.failed_login_attempts = 0
+            if not row.password or not ctx.verify(cred.password, row.password):
+                row.password = ctx.hash(cred.password)
+            updated += 1
+            print(f"  = {cred.label} → user '{cred.username}' disinkronkan ({cred.role})")
+            continue
+        session.add(
+            User(
+                id=str(uuid.uuid4()),
+                user_id=str(uuid.uuid4()),
+                username=cred.username,
+                name=f"{'Admin' if cred.role == 'ADMIN' else 'Moderator'} {cred.slot}",
+                email=cred.email,
+                password=ctx.hash(cred.password),
+                provider=staff_credentials.PROVIDER,
+                role=cred.role,
+                is_email_verified=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                last_active_at=datetime.now(timezone.utc),
+            )
+        )
+        created += 1
+        print(f"  + {cred.label} → user '{cred.username}' dibuat ({cred.role})")
+
+    # Nonaktifkan akun staff yang slot-nya sudah tidak lengkap / dihapus,
+    # supaya benar-benar tidak bisa login (password dikosongkan).
+    keep = {c.username for c in active} | {c.email for c in active}
+    rows = (
+        await session.execute(select(User).where(User.provider == staff_credentials.PROVIDER))
+    ).scalars().all()
+    disabled = 0
+    for u in rows:
+        if u.username in keep or (u.email or "") in keep:
+            continue
+        if u.password is not None:
+            u.password = None
+            disabled += 1
+            print(f"  - user '{u.username}' DINONAKTIFKAN (slot kredensial tidak lengkap)")
+
+    print(f"  staff: {created} baru, {updated} disinkronkan, {disabled} dinonaktifkan")
+
+
+# =====================================================================
 # MEMBERS (kanonik) — dari frontend/data/members.json
 # =====================================================================
 def _load_json(path: Path):
@@ -410,6 +494,7 @@ async def seed_games(session) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Seed database JKT48Verse (idempoten)")
     parser.add_argument("--users", action="store_true")
+    parser.add_argument("--staff", action="store_true")
     parser.add_argument("--members", action="store_true")
     parser.add_argument("--setlists", action="store_true")
     parser.add_argument("--content", action="store_true")
@@ -417,7 +502,9 @@ async def main() -> None:
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
 
-    run_all = args.all or not any([args.users, args.members, args.setlists, args.content, args.games])
+    run_all = args.all or not any(
+        [args.users, args.staff, args.members, args.setlists, args.content, args.games]
+    )
 
     print("=" * 56)
     print("JKT48Verse Seeder (PostgreSQL) — idempoten, aman diulang")
@@ -429,6 +516,9 @@ async def main() -> None:
             if run_all or args.users:
                 print("[users] akun seed...")
                 await seed_users(session)
+            if run_all or args.staff:
+                print("[staff] kredensial ADMIN_1..3 & MOD_1..10 dari environment...")
+                await seed_staff(session)
             if run_all or args.members:
                 print("[members] data member kanonik...")
                 await seed_members(session)

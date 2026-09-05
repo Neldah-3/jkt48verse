@@ -411,3 +411,58 @@ export async function globalSearch(q: string) {
 
 /** Kompatibilitas import lama — kini API selalu siap. */
 export async function ready() {}
+
+// ---------- Kredensial staff & router API key AI ----------
+export type CredentialSlot = {
+  role: string;
+  slot: number;
+  label: string;
+  active: boolean;
+  defined: boolean;
+  username: string;
+  email: string;
+  missing: string[];
+  reason: string;
+};
+
+export type CredentialSummary = {
+  summary: Record<string, { active: number; slots: number; inactive: number }>;
+  slots: CredentialSlot[];
+};
+
+export async function credentialSlots(): Promise<CredentialSummary> {
+  return apiGet<CredentialSummary>("/admin/credentials", { summary: {}, slots: [] });
+}
+
+export type AiKeyStat = {
+  label: string;
+  key: string;
+  ok: number;
+  errors: number;
+  coolingDown: boolean;
+  cooldownSeconds: number;
+  lastError: string | null;
+  lastUsedAgo: number | null;
+};
+
+export type AiKeyRouter = {
+  configured: boolean;
+  baseUrl: string;
+  model: string;
+  totalKeys: number;
+  ready: number;
+  coolingDown: number;
+  keys: AiKeyStat[];
+};
+
+export async function aiKeyStats(): Promise<AiKeyRouter> {
+  return apiGet<AiKeyRouter>("/admin/ai/keys", {
+    configured: false,
+    baseUrl: "",
+    model: "",
+    totalKeys: 0,
+    ready: 0,
+    coolingDown: 0,
+    keys: [],
+  });
+}
