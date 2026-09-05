@@ -1,5 +1,6 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
+import { backendAuthCookies, expiredAuthCookies } from "@/lib/session-cookies";
 
 /** Base URL API FastAPI yang dijangkau dari server Next.js (bukan browser). */
 export const API_BASE = (process.env.API_BASE_URL ?? "http://127.0.0.1:8000/api").replace(/\/$/, "");
@@ -27,11 +28,6 @@ export async function clientKey() {
   return Buffer.from(`${ip}|${ua}`).toString("base64").slice(0, 60);
 }
 
-async function cookieHeader(): Promise<string> {
-  const c = await cookies();
-  return c.toString();
-}
-
 async function rawFetch(path: string, init: RequestInit = {}, cookieStr: string, csrf?: string): Promise<Response> {
   const h = new Headers(init.headers);
   if (cookieStr) h.set("cookie", cookieStr);
@@ -41,36 +37,11 @@ async function rawFetch(path: string, init: RequestInit = {}, cookieStr: string,
   return fetch(`${API_BASE}${path}`, { ...init, headers: h, cache: "no-store" });
 }
 
-/**
- * Panggil API backend dengan meneruskan cookie permintaan masuk.
- * Bila 401, coba refresh token sekali (best-effort).
- */
+/** Forward the session prepared by middleware. Never rotate tokens during RSC
+ * rendering: Server Components cannot persist Set-Cookie to the browser. */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const c = await cookies();
-  const cookieStr = c.toString();
-  const csrf = c.get("csrf_token")?.value ?? "";
-  const res = await rawFetch(path, init, cookieStr, csrf);
-  if (res.status !== 401 || !c.get("refresh_token")) return res;
-
-  // coba refresh
-  let refreshed: Response | null = null;
-  try {
-    refreshed = await rawFetch("/auth/refresh", { method: "POST" }, cookieStr, csrf);
-  } catch {
-    refreshed = null;
-  }
-  if (!refreshed || !refreshed.ok) return res;
-
-  // token baru ada di cookie respons refresh — pakai untuk request ulang
-  const setCookies: string[] = [];
-  refreshed.headers.getSetCookie?.().forEach((sc) => setCookies.push(sc.split(";")[0]));
-  const merged = [cookieStr, ...setCookies].filter(Boolean).join("; ");
-  let csrf2 = csrf;
-  for (const sc of setCookies) {
-    const [k, v] = sc.split("=");
-    if (k === "csrf_token") csrf2 = v;
-  }
-  return rawFetch(path, init, merged, csrf2);
+  return rawFetch(path, init, c.toString(), c.get("csrf_token")?.value);
 }
 
 /** GET JSON dengan nilai default saat 404. */
@@ -99,41 +70,13 @@ export async function apiCall<T = undefined>(path: string, init: RequestInit = {
   }
 }
 
-/** Terapkan Set-Cookie dari respons backend ke cookie Next.js (dipakai server action login). */
+/** Called only inside Server Actions / Route Handlers, where cookies are writable. */
 export async function applyBackendCookies(res: Response) {
   const c = await cookies();
-  const list = res.headers.getSetCookie?.() ?? [];
-  for (const sc of list) {
-    const [pair, ...attrs] = sc.split(";");
-    const idx = pair.indexOf("=");
-    if (idx < 0) continue;
-    const name = pair.slice(0, idx).trim();
-    const value = pair.slice(idx + 1).trim();
-    const opt: Record<string, unknown> = { path: "/" };
-    for (const a of attrs) {
-      const [k, v] = a.split("=").map((x) => x.trim());
-      const kl = k.toLowerCase();
-      if (kl === "max-age") opt.maxAge = Number(v);
-      else if (kl === "httponly") opt.httpOnly = true;
-      else if (kl === "samesite") opt.sameSite = v === "lax" ? "lax" : v === "strict" ? "strict" : "none";
-      else if (kl === "secure") opt.secure = true;
-      else if (kl === "domain") { /* drop domain agar cookie first-party */ }
-    }
-    try {
-      c.set(name, value, opt as never);
-    } catch {
-      /* cookie hanya bisa di-set di Server Action / Route Handler */
-    }
-  }
+  for (const cookie of backendAuthCookies(res.headers)) c.set(cookie);
 }
 
 export async function clearAuthCookies() {
   const c = await cookies();
-  for (const name of ["token", "refresh_token", "csrf_token"]) {
-    try {
-      c.set(name, "", { path: "/", maxAge: 0 });
-    } catch {
-      /* ignore */
-    }
-  }
+  for (const cookie of expiredAuthCookies()) c.set(cookie);
 }

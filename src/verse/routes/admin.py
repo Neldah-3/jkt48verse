@@ -23,8 +23,14 @@ async def list_users(
     session: AsyncSession = Depends(get_session),
 ):
     rows = (
-        await session.execute(select(User).order_by(desc(User.created_at)).limit(limit))
-    ).scalars().all()
+        (
+            await session.execute(
+                select(User).order_by(desc(User.created_at)).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [wish_user_dict(u) for u in rows]
 
 
@@ -35,10 +41,14 @@ async def login_logs(
     session: AsyncSession = Depends(get_session),
 ):
     rows = (
-        await session.execute(
-            select(LoginHistory).order_by(desc(LoginHistory.login_at)).limit(limit)
+        (
+            await session.execute(
+                select(LoginHistory).order_by(desc(LoginHistory.login_at)).limit(limit)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": r.id,
@@ -62,10 +72,16 @@ async def moderation_logs(
     session: AsyncSession = Depends(get_session),
 ):
     rows = (
-        await session.execute(
-            select(ModerationLog).order_by(desc(ModerationLog.created_at)).limit(limit)
+        (
+            await session.execute(
+                select(ModerationLog)
+                .order_by(desc(ModerationLog.created_at))
+                .limit(limit)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": r.id,
@@ -103,8 +119,10 @@ async def list_reports(
     targets = {}
     if target_seqs:
         t_rows = (
-            await session.execute(select(User).where(User.seq.in_(target_seqs)))
-        ).scalars().all()
+            (await session.execute(select(User).where(User.seq.in_(target_seqs))))
+            .scalars()
+            .all()
+        )
         targets = {t.seq: t for t in t_rows}
     out = []
     for r, m in rows:
@@ -122,7 +140,11 @@ async def list_reports(
                 "description": r.description,
                 "status": r.status,
                 "createdAt": r.created_at.isoformat() if r.created_at else None,
-                "message": {"username": m.username, "body": m.body, "isHidden": m.is_hidden},
+                "message": {
+                    "username": m.username,
+                    "body": m.body,
+                    "isHidden": m.is_hidden,
+                },
             }
         )
     return out
@@ -181,7 +203,10 @@ async def sanction_user(
         return {"ok": False, "error": "Tidak dapat menyanksi ADMIN."}
     if viewer.get("role") == "MODERATOR":
         if user.role != "MEMBER":
-            return {"ok": False, "error": "Moderator hanya dapat memblokir akun MEMBER."}
+            return {
+                "ok": False,
+                "error": "Moderator hanya dapat memblokir akun MEMBER.",
+            }
         if data.duration == "permanent":
             return {"ok": False, "error": "Ban permanen memerlukan approval Admin."}
         if data.kind == "block":
@@ -201,9 +226,12 @@ async def sanction_user(
         except ValueError:
             hours = 24
         until = now + timedelta(hours=hours)
-        dur_label = until.astimezone(
-            timezone(offset=__import__("datetime").timedelta(hours=7))
-        ).strftime("%d %b %Y %H:%M") + " WIB"
+        dur_label = (
+            until.astimezone(
+                timezone(offset=__import__("datetime").timedelta(hours=7))
+            ).strftime("%d %b %Y %H:%M")
+            + " WIB"
+        )
 
     if data.kind == "mute":
         user.muted_until = until
@@ -211,6 +239,12 @@ async def sanction_user(
     elif data.kind == "block":
         user.blocked_until = until
         user.block_reason = data.reason
+        from sqlalchemy import delete
+        from src.models import RefreshToken
+
+        await session.execute(
+            delete(RefreshToken).where(RefreshToken.user_id == user.user_id)
+        )
         title = "Akun kamu diblokir"
     else:
         user.blocked_until = None
@@ -242,13 +276,19 @@ async def admin_stats(
     session: AsyncSession = Depends(get_session),
 ):
     admins = (
-        await session.execute(select(func.count()).select_from(User).where(User.role == "ADMIN"))
+        await session.execute(
+            select(func.count()).select_from(User).where(User.role == "ADMIN")
+        )
     ).scalar() or 0
     moderators = (
-        await session.execute(select(func.count()).select_from(User).where(User.role == "MODERATOR"))
+        await session.execute(
+            select(func.count()).select_from(User).where(User.role == "MODERATOR")
+        )
     ).scalar() or 0
     pending = (
-        await session.execute(select(func.count()).select_from(Report).where(Report.status == "pending"))
+        await session.execute(
+            select(func.count()).select_from(Report).where(Report.status == "pending")
+        )
     ).scalar() or 0
     return {"admins": admins, "moderators": moderators, "pendingReports": pending}
 
@@ -269,11 +309,14 @@ async def credential_slots(viewer: dict = Depends(require_admin)):
 
 
 @router.post("/admin/credentials/reload")
-async def reload_credentials(viewer: dict = Depends(require_admin)):
-    """Baca ulang environment tanpa restart (setelah mengubah .env)."""
+async def reload_credentials(
+    viewer: dict = Depends(require_admin), session: AsyncSession = Depends(get_session)
+):
+    """Synchronize staff accounts and revoke sessions for disabled credentials."""
+    from scripts.seed import seed_staff
     from src.auth import staff_credentials
 
-    staff_credentials.reload()
+    await seed_staff(session)
     return {"ok": True, "summary": staff_credentials.summary()}
 
 

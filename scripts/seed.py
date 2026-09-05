@@ -6,7 +6,7 @@ tidak kompatibel dengan stack FastAPI + SQLAlchemy + PostgreSQL.
 
 Data yang di-seed:
   --users      akun admin / moderator / fansdemo (email terverifikasi)
-  --members    member kanonik dari frontend/data/members.json
+  --members    member kanonik dari scripts/members_seed.json
   --setlists   setlist teater (tabel legacy yang masih dilayani)
   --content    encyclopedia, glossary, motivations, contributors
   --games      bank soal Quiz + Guess Member
@@ -23,12 +23,15 @@ import json
 import os
 import sys
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy import delete, select, text  # noqa: E402
+
+from scripts.member_seed import member_fields  # noqa: E402
+from src.config import config  # noqa: E402
 
 from src.database import database_instance  # noqa: E402
 from src.models import (  # noqa: E402
@@ -39,6 +42,7 @@ from src.models import (  # noqa: E402
     Member,
     Motivation,
     QuizQuestion,
+    RefreshToken,
     Setlist,
     User,
 )
@@ -49,7 +53,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # =====================================================================
 # USERS
 # =====================================================================
-# Password bawaan mengikuti DEPLOY.md — WAJIB diganti setelah deploy.
+# Password bawaan HANYA untuk development; produksi memakai slot staff.
 # Override via environment: ADMIN_PASSWORD / MODERATOR_PASSWORD / FANS_PASSWORD.
 SEED_ACCOUNTS = [
     {
@@ -82,14 +86,16 @@ SEED_ACCOUNTS = [
 async def seed_users(session) -> None:
     from passlib.context import CryptContext
 
+    if not config.is_env_dev:
+        raise ValueError(
+            "Akun demo (--users) hanya boleh dibuat di ENV=dev. Gunakan --staff di produksi."
+        )
     ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
     for acc in SEED_ACCOUNTS:
         existing = (
             await session.execute(select(User).where(User.username == acc["username"]))
         ).scalar_one_or_none()
         password = os.environ.get(acc["env"], "") or acc["default"]
-        if password == acc["default"] and os.environ.get("ENV") == "prod":
-            print(f"  ⚠️  {acc['username']}: memakai password bawaan di PROD — set {acc['env']} & ganti segera!")
         if existing:
             existing.role = acc["role"]
             existing.is_email_verified = True
@@ -149,17 +155,33 @@ async def seed_staff(session) -> None:
             )
         ).scalar_one_or_none()
         if row:
+            password_changed = not row.password or not ctx.verify(
+                cred.password, row.password
+            )
+            identity_changed = (row.username, row.email, row.role, row.provider) != (
+                cred.username,
+                cred.email,
+                cred.role,
+                staff_credentials.PROVIDER,
+            )
+            if password_changed or identity_changed:
+                await session.execute(
+                    delete(RefreshToken).where(RefreshToken.user_id == row.user_id)
+                )
+                row.is_account_locked = False
+                row.account_locked_until = None
+                row.failed_login_attempts = 0
             row.username = cred.username
             row.email = cred.email
             row.role = cred.role
             row.provider = staff_credentials.PROVIDER
             row.is_email_verified = True
-            row.is_account_locked = False
-            row.failed_login_attempts = 0
-            if not row.password or not ctx.verify(cred.password, row.password):
+            if password_changed:
                 row.password = ctx.hash(cred.password)
             updated += 1
-            print(f"  = {cred.label} → user '{cred.username}' disinkronkan ({cred.role})")
+            print(
+                f"  = {cred.label} → user '{cred.username}' disinkronkan ({cred.role})"
+            )
             continue
         session.add(
             User(
@@ -184,77 +206,83 @@ async def seed_staff(session) -> None:
     # supaya benar-benar tidak bisa login (password dikosongkan).
     keep = {c.username for c in active} | {c.email for c in active}
     rows = (
-        await session.execute(select(User).where(User.provider == staff_credentials.PROVIDER))
-    ).scalars().all()
+        (
+            await session.execute(
+                select(User).where(User.provider == staff_credentials.PROVIDER)
+            )
+        )
+        .scalars()
+        .all()
+    )
     disabled = 0
     for u in rows:
         if u.username in keep or (u.email or "") in keep:
             continue
+        await session.execute(
+            delete(RefreshToken).where(RefreshToken.user_id == u.user_id)
+        )
         if u.password is not None:
             u.password = None
             disabled += 1
-            print(f"  - user '{u.username}' DINONAKTIFKAN (slot kredensial tidak lengkap)")
+            print(
+                f"  - user '{u.username}' DINONAKTIFKAN (slot kredensial tidak lengkap)"
+            )
 
     print(f"  staff: {created} baru, {updated} disinkronkan, {disabled} dinonaktifkan")
 
 
 # =====================================================================
-# MEMBERS (kanonik) — dari frontend/data/members.json
+# MEMBERS (kanonik) — dari scripts/members_seed.json
 # =====================================================================
 def _load_json(path: Path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _parse_date(v) -> date | None:
-    if not v:
-        return None
-    try:
-        return date.fromisoformat(str(v)[:10])
-    except ValueError:
-        return None
-
-
 async def seed_members(session) -> None:
-    data = _load_json(ROOT / "frontend" / "data" / "members.json")
-    by_slug = {
-        m.slug: m
-        for m in (await session.execute(select(Member))).scalars().all()
-    }
-    next_id = (
-        await session.execute(select(func.coalesce(func.max(Member.id), 0)))
-    ).scalar() + 1
+    # Validate the entire snapshot before writing anything; never silently skip
+    # every row because a legacy field was mistaken for a canonical field.
+    source = [
+        member_fields(row) for row in _load_json(ROOT / "scripts" / "members_seed.json")
+    ]
+    # The historical snapshot contains multiple official IDs for a few alumni.
+    # One canonical profile per slug; the last record supplies its external ID.
+    data = list({row["slug"]: row for row in source}.values())
+    existing = (await session.execute(select(Member))).scalars().all()
+    by_slug = {m.slug: m for m in existing}
+    by_external_id = {m.external_id: m for m in existing if m.external_id}
+    next_id = max((m.id for m in existing), default=0) + 1
     inserted = updated = 0
-    for row in data:
-        slug = row.get("slug")
-        if not slug:
-            continue
-        fields = dict(
-            name=row.get("name") or slug,
-            nickname=row.get("nickname") or row.get("name") or slug,
-            generation=row.get("generation"),
-            status=row.get("status") or "regular",
-            team=row.get("team"),
-            birth_date=_parse_date(row.get("birthDate")),
-            height=row.get("height"),
-            blood_type=row.get("bloodType"),
-            horoscope=row.get("horoscope"),
-            jikoshoukai=row.get("jikoshoukai"),
-            hobbies=row.get("hobbies"),
-            trivia=row.get("trivia"),
-            socials=row.get("socials") or {},
-            updated_at=datetime.now(timezone.utc),
-        )
-        m = by_slug.get(slug)
-        if m:
+    for fields in data:
+        slug = fields["slug"]
+        m = by_external_id.get(fields["external_id"])
+        if m is None:
+            m = by_slug.get(slug)
+        if m is not None:
+            # Preserve public URLs, primary keys and manually curated fields.
             for k, v in fields.items():
-                setattr(m, k, v)
+                if k != "slug":
+                    setattr(m, k, v)
+            m.updated_at = datetime.now(timezone.utc)
             updated += 1
         else:
-            session.add(Member(id=next_id, slug=slug, created_at=datetime.now(timezone.utc), **fields))
+            m = Member(id=next_id, **fields)
+            session.add(m)
+            by_slug[slug] = m
             next_id += 1
             inserted += 1
-    print(f"  + members: {inserted} baru, {updated} diperbarui (total sumber: {len(data)})")
+        by_external_id[fields["external_id"]] = m
+    await session.flush()
+    # The scraper also supplies explicit IDs. Keep future SERIAL inserts safe.
+    await session.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('members', 'id'), "
+            "COALESCE((SELECT MAX(id) FROM members), 1), EXISTS(SELECT 1 FROM members))"
+        )
+    )
+    print(
+        f"  + members: {inserted} baru, {updated} diperbarui (total sumber: {len(data)})"
+    )
 
 
 # =====================================================================
@@ -513,8 +541,8 @@ async def main() -> None:
     await database_instance.connect()
     try:
         async with database_instance.session_factory() as session:
-            if run_all or args.users:
-                print("[users] akun seed...")
+            if args.users or (run_all and config.is_env_dev):
+                print("[users] akun demo development...")
                 await seed_users(session)
             if run_all or args.staff:
                 print("[staff] kredensial ADMIN_1..3 & MOD_1..10 dari environment...")
@@ -533,7 +561,7 @@ async def main() -> None:
                 await seed_games(session)
             await session.commit()
         print("\n✅ Seeding selesai.")
-        print("   Akun: admin / moderator / fansdemo — ganti password setelah deploy!")
+        print("   Produksi memakai akun dari slot ADMIN_n / MOD_n, bukan akun demo.")
     finally:
         await database_instance.close()
 

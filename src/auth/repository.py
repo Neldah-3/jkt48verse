@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import LoginHistory, RefreshToken, VerificationToken
@@ -50,6 +50,11 @@ class AuthRepository:
             await self.session.delete(row)
             await self.session.flush()
 
+    async def delete_user_refresh_tokens(self, user_id: str):
+        await self.session.execute(
+            delete(RefreshToken).where(RefreshToken.user_id == user_id)
+        )
+
     async def insert_login_history(self, data: dict):
         history = LoginHistory(
             user_id=data["userId"],
@@ -96,7 +101,9 @@ class AuthRepository:
         await self.session.flush()
         return token
 
-    async def find_verification_token(self, token: str, token_type: str) -> Optional[dict]:
+    async def find_verification_token(
+        self, token: str, token_type: str
+    ) -> Optional[dict]:
         result = await self.session.execute(
             select(VerificationToken).where(
                 VerificationToken.hash_token == token,

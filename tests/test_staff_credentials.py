@@ -23,7 +23,7 @@ def _clean_env(monkeypatch):
     for role, count in sc.ROLE_SLOTS:
         for slot in range(1, count + 1):
             for field in sc.REQUIRED_FIELDS:
-                monkeypatch.delenv(f"{sc.ROLE_PREFIX[role]}_{slot}_{field}", raising=False)
+                monkeypatch.setenv(f"{sc.ROLE_PREFIX[role]}_{slot}_{field}", "")
     sc.reload()
     yield
     sc.reload()
@@ -170,3 +170,24 @@ def test_signin_menerima_field_access_code():
     route = next(r for r in app.routes if getattr(r, "path", None) == "/api/auth/signin")
     names = {p.name for p in route.dependant.body_params}
     assert "access_code" in names
+
+
+def test_dotenv_is_read_without_overriding_exported_values(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        'ADMIN_1_USERNAME=" Admin Spasi "\n'
+        'ADMIN_1_EMAIL=staff@example.org\n'
+        'ADMIN_1_PASSWORD="Password-Only-Test"\n'
+        'ADMIN_1_ACCESS_CODE=" Test Code "\n'
+    )
+    for field in sc.REQUIRED_FIELDS:
+        monkeypatch.delenv(f"ADMIN_1_{field}", raising=False)
+    sc.reload()
+    cred = sc.admin_credentials()[0]
+    assert cred.username == " Admin Spasi "
+    assert cred.verify_access_code(" Test Code ")
+    assert not cred.verify_access_code("Test Code")
+    # An explicitly empty environment value disables the slot even with .env set.
+    monkeypatch.setenv("ADMIN_1_ACCESS_CODE", "")
+    sc.reload()
+    assert sc.admin_credentials() == []

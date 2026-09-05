@@ -11,7 +11,7 @@ export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; 
 
 // ---------------- AUTH ----------------
 export async function registerAction(_: unknown, form: FormData): Promise<ActionResult> {
-  const username = String(form.get("username") ?? "").trim();
+  const username = String(form.get("username") ?? "");
   const email = String(form.get("email") ?? "").trim();
   const password = String(form.get("password") ?? "");
   const res = await fetch(`${API_BASE}/users/signup`, {
@@ -31,7 +31,7 @@ export async function registerAction(_: unknown, form: FormData): Promise<Action
 }
 
 export async function loginAction(_: unknown, form: FormData): Promise<ActionResult> {
-  const username = String(form.get("username") ?? "").trim();
+  const username = String(form.get("username") ?? "");
   const password = String(form.get("password") ?? "");
   // Code akses opsional di form ini (wajib hanya untuk akun Admin/Moderator).
   const accessCode = String(form.get("accessCode") ?? "");
@@ -51,7 +51,7 @@ export async function loginAction(_: unknown, form: FormData): Promise<ActionRes
 }
 
 export async function staffLoginAction(_: unknown, form: FormData): Promise<ActionResult> {
-  const username = String(form.get("username") ?? "").trim();
+  const username = String(form.get("username") ?? "");
   // Code akses TIDAK di-trim: besar/kecil huruf, spasi, dan karakter dihitung persis.
   const password = String(form.get("password") ?? "");
   const accessCode = String(form.get("accessCode") ?? "");

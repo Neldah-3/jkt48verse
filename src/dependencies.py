@@ -54,7 +54,9 @@ def get_security_service(
     settings: Settings = Depends(get_settings),
 ) -> SecurityService:
     background_runner = AsyncBackgroundRunner()
-    return SecurityService(auth_repo, user_repo, email_service, background_runner, settings)
+    return SecurityService(
+        auth_repo, user_repo, email_service, background_runner, settings
+    )
 
 
 def get_auth_service(
@@ -73,11 +75,13 @@ async def get_current_user(
     auth_service: AuthService = Depends(get_auth_service),
 ):
     token_data = auth_service.verify_access_token(token)
-    user = await auth_service.get_user(username_or_email=token_data.username)
+    user = await auth_service.get_session_user(
+        token_data.username, token_data.session_id
+    )
     if user is None:
         logger.warning("User not found for provided token")
         raise InvalidJWTToken()
-    return UserCurrent(**user.model_dump())
+    return UserCurrent(**user.to_dict())
 
 
 async def get_current_user_optional(
@@ -91,16 +95,20 @@ async def get_current_user_optional(
     token = auth_header.split(" ")[1]
     try:
         token_data = auth_service.verify_access_token(token)
-        user = await auth_service.get_user(username_or_email=token_data.username)
+        user = await auth_service.get_session_user(
+            token_data.username, token_data.session_id
+        )
         if user is None:
             raise InvalidJWTToken()
-        return UserCurrent(**user.model_dump())
+        return UserCurrent(**user.to_dict())
     except Exception as e:
         logger.warning(f"Optional auth failed: {e}")
         return None
 
 
-def require_csrf_protection(request: Request, settings: Settings = Depends(get_settings)):
+def require_csrf_protection(
+    request: Request, settings: Settings = Depends(get_settings)
+):
     if request.method == "OPTIONS":
         return True
 
@@ -127,7 +135,9 @@ async def require_admin(
     return current_user
 
 
-def get_member_repository(session: AsyncSession = Depends(get_session)) -> MemberRepository:
+def get_member_repository(
+    session: AsyncSession = Depends(get_session),
+) -> MemberRepository:
     return MemberRepository(session)
 
 

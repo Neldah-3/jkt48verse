@@ -7,4 +7,4 @@ pytest
 pytest-asyncio
 httpx
 # icon asset generation (scripts/make_icon.py)
- Pillow>=10.0
+Pillow>=10.0

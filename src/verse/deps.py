@@ -3,13 +3,10 @@
 from typing import Any, Optional
 
 from fastapi import Depends, Request
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.http_exceptions import InvalidJWTToken
-from src.auth.route import get_auth_service  # re-use service factory
+from src.dependencies import get_auth_service
 from src.auth.service import AuthService
-from src.database import get_session
 from src.models import User
 from src.verse.helpers import wish_user_dict
 
@@ -49,7 +46,6 @@ def build_viewer(user: User) -> dict[str, Any]:
 
 async def get_viewer(
     request: Request,
-    session: AsyncSession = Depends(get_session),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> dict[str, Any]:
     token = request.cookies.get("token")
@@ -63,9 +59,9 @@ async def get_viewer(
         token_data = auth_service.verify_access_token(token)
     except Exception:
         return dict(GUEST_VIEWER)
-    # sub JWT berisi user_id (bukan username) — lihat AuthService.create_access_token
-    result = await session.execute(select(User).where(User.user_id == token_data.username))
-    user = result.scalar_one_or_none()
+    user = await auth_service.get_session_user(
+        token_data.username, token_data.session_id
+    )
     if user is None:
         return dict(GUEST_VIEWER)
     return build_viewer(user)
@@ -87,7 +83,9 @@ def _require_role(viewer: dict[str, Any], roles: tuple[str, ...]) -> dict[str, A
     return viewer
 
 
-async def require_moderator(viewer: dict[str, Any] = Depends(get_viewer)) -> dict[str, Any]:
+async def require_moderator(
+    viewer: dict[str, Any] = Depends(get_viewer)
+) -> dict[str, Any]:
     return _require_role(viewer, ("MODERATOR", "ADMIN"))
 
 
