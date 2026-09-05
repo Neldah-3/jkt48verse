@@ -60,5 +60,9 @@ class PasswordPolicyViolation(BadRequest):
     DETAIL = ErrorCode.PASSWORD_POLICY_VIOLATION
 
 
+class PasswordPolicyViolationSimple(BadRequest):
+    DETAIL = "Password minimal 8 karakter (maksimal 64)."
+
+
 class AuthOperationFailed(InternalServerError):
     DETAIL = ErrorCode.AUTH_OPERATION_FAILED

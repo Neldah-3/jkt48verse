@@ -21,14 +21,20 @@ from src.auth.http_exceptions import EmailNotFoundOrVerified
 from src.auth.schemas import (
     EmailVerificationRequest,
     EmailVerificationResponse,
+    ForgotPasswordOtpRequest,
+    ForgotPasswordOtpResponse,
     LogoutResponse,
     PasswordResetConfirmRequest,
     PasswordResetConfirmResponse,
     PasswordResetRequest,
     PasswordResetResponse,
+    ResetPasswordOtpRequest,
+    ResetPasswordOtpResponse,
     Token,
     VerifyEmailRequest,
     VerifyEmailResponse,
+    VerifyResetOtpRequest,
+    VerifyResetOtpResponse,
 )
 from src.auth.service import AuthService
 from src.config import Settings, config
@@ -521,3 +527,84 @@ async def reset_password_endpoint(
         return PasswordResetConfirmResponse(message=ErrorCode.PASSWORD_RESET_SUCCESS)
     else:
         raise PasswordResetTokenInvalidError()
+
+
+# ---------------------------------------------------------------------------
+# JKT48Verse: Lupa password + reset password via OTP 6 digit
+# ---------------------------------------------------------------------------
+@router.post("/auth/forgot-password-otp", response_model=ForgotPasswordOtpResponse)
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
+async def forgot_password_otp(
+    request: Request,
+    request_data: ForgotPasswordOtpRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+    config: Settings = Depends(get_settings),
+):
+    """
+    Kirim kode OTP 6 digit reset password ke email pengguna.
+
+    Respons selalu netral (tidak membocorkan apakah email terdaftar).
+    Bila ENV=dev & RESEND belum diatur, kode dikembalikan sebagai ``devCode``.
+    """
+    email = (request_data.email or "").strip().lower()
+    payload = ForgotPasswordOtpResponse(
+        message="Jika email terdaftar, kode OTP reset password telah dikirim."
+    )
+    if not email:
+        return payload
+
+    result = await auth_service.create_password_reset_otp(email)
+    if result and not result["sent"] and config.is_env_dev:
+        logger.info(f"[DEV] OTP reset password untuk {email}: {result['code']}")
+        payload.devCode = result["code"]
+    return payload
+
+
+@router.post("/auth/verify-reset-otp", response_model=VerifyResetOtpResponse)
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
+async def verify_reset_otp(
+    request: Request,
+    request_data: VerifyResetOtpRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    Verifikasi kode OTP reset password.
+
+    Bila valid, OTP dikonsumsi dan diterbitkan ``resetToken`` sekali pakai
+    (berlaku sesuai PASSWORD_RESET_EXPIRE_HOURS) untuk dipakai di
+    ``/auth/reset-password``.
+    """
+    ok, message, reset_token = await auth_service.verify_password_reset_otp(
+        (request_data.email or "").strip().lower(), request_data.code
+    )
+    if not ok:
+        return JSONResponse(
+            status_code=400,
+            content={"message": message, "valid": False, "resetToken": None},
+        )
+    return VerifyResetOtpResponse(message=message, valid=True, resetToken=reset_token)
+
+
+@router.post("/auth/reset-password-otp", response_model=ResetPasswordOtpResponse)
+@limiter.limit(f"{config.auth_requests_per_minute}/minute", override_defaults=True)
+async def reset_password_with_otp(
+    request: Request,
+    request_data: ResetPasswordOtpRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    Reset password satu langkah memakai email + kode OTP + password baru.
+
+    Setelah berhasil: semua sesi (refresh token) dicabut, akun dibuka dari
+    lock, dan pengguna harus login ulang dengan password baru.
+    """
+    success, message = await auth_service.reset_password_with_otp(
+        (request_data.email or "").strip().lower(),
+        request_data.code,
+        request_data.new_password,
+    )
+    if not success:
+        return JSONResponse(
+            status_code=400, content={"message": message, "success": False}
+        )
+    return ResetPasswordOtpResponse(message=message, success=True)

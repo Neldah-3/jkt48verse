@@ -98,6 +98,52 @@ export async function resendOtpAction(email: string): Promise<ActionResult<{ dev
   return { ok: true, data: { devCode: b.devCode } };
 }
 
+// ---------------- LUPA PASSWORD (OTP) ----------------
+export async function forgotPasswordAction(_: unknown, form: FormData): Promise<ActionResult> {
+  const email = String(form.get("email") ?? "").trim();
+  if (!email) return { ok: false, error: "Email wajib diisi." };
+  const res = await fetch(`${API_BASE}/auth/forgot-password-otp`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+    cache: "no-store",
+  });
+  const b = (await res.json().catch(() => ({}))) as { message?: string; devCode?: string };
+  if (!res.ok) return { ok: false, error: b.message ?? "Gagal mengirim kode OTP. Coba lagi nanti." };
+  redirect(`/auth/reset-password?email=${encodeURIComponent(email)}${b.devCode ? `&dev=${b.devCode}` : ""}`);
+}
+
+export async function resendResetOtpAction(email: string): Promise<ActionResult<{ devCode?: string }>> {
+  const res = await fetch(`${API_BASE}/auth/forgot-password-otp`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+    cache: "no-store",
+  });
+  const b = (await res.json().catch(() => ({}))) as { devCode?: string };
+  return { ok: true, data: { devCode: b.devCode } };
+}
+
+export async function resetPasswordOtpAction(_: unknown, form: FormData): Promise<ActionResult> {
+  const email = String(form.get("email") ?? "").trim();
+  const code = String(form.get("code") ?? "").trim();
+  const newPassword = String(form.get("newPassword") ?? "");
+  const confirmPassword = String(form.get("confirmPassword") ?? "");
+  if (newPassword !== confirmPassword) return { ok: false, error: "Konfirmasi password tidak sama." };
+  if (newPassword.length < 8) return { ok: false, error: "Password minimal 8 karakter." };
+  const res = await fetch(`${API_BASE}/auth/reset-password-otp`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, code, new_password: newPassword, confirm_password: confirmPassword }),
+    cache: "no-store",
+  });
+  const b = (await res.json().catch(() => ({}))) as { message?: string; success?: boolean; detail?: string };
+  if (!res.ok || !b.success) {
+    return { ok: false, error: b.message ?? b.detail ?? "Kode OTP tidak valid atau kedaluwarsa." };
+  }
+  redirect("/auth/login?reset=1");
+}
+
 export async function logoutAction(all?: boolean) {
   void all;
   try {
