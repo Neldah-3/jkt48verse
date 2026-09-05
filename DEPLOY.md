@@ -11,11 +11,17 @@ Semua akses data frontend melalui API FastAPI (cookie auth diteruskan server-sid
    pip install -r requirements/base.txt
    export DATABASE_URL="postgresql://..."
    alembic upgrade head
-   python scripts/seed.py            # data awal (idempoten)
+   python scripts/seed.py            # data awal (idempoten, aman dijalankan ulang)
+   python scripts/seed_concerts.py # opsional: data konser (tabel legacy concerts)
    ```
+   Seeder mengisi: akun `admin`/`moderator`/`fansdemo`, 69 member kanonik,
+   setlist teater, encyclopedia/glossary/motivation/contributors, serta bank
+   soal Quiz & Guess Member. Password seed mengikuti nilai bawaan di
+   `DEPLOY.md` — **ganti setelah deploy** (atau override via env
+   `ADMIN_PASSWORD`, `MODERATOR_PASSWORD`, `FANS_PASSWORD`).
 
 ## 2. Backend FastAPI (Railway / Render / Fly.io / VPS)
-- Start command: `uvicorn src.api:app --host 0.0.0.0 --port $PORT` (tanpa `--reload`).
+- Start command: `uvicorn src.main:app --host 0.0.0.0 --port $PORT` (tanpa `--reload`).
 - Environment variables (lihat `.env.example`):
   - `DATABASE_URL` — string koneksi Supabase.
   - `REDIS_URL` — Redis sungguhan (mis. Upstash `redis://...`); WAJIB di produksi.
@@ -34,5 +40,12 @@ Semua akses data frontend melalui API FastAPI (cookie auth diteruskan server-sid
 - `admin` / `AdminJKT48verse2026` · `moderator` / `ModeratorJKT48verse2026` · `fansdemo` / `FansDemoJKT48verse2026`
 
 ## Catatan
-- Sandbox lokal: `python scripts/dev_pg.py` (Postgres dev port 5433) + `uvicorn src.api:app --reload --port 8000` + `cd frontend && npm i && npm run dev`.
+- Sandbox lokal:
+  1. `python scripts/dev_pg.py` → Postgres dev di port 5433 (DB `jkt48verse`).
+  2. `export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5433/jkt48verse"` lalu `alembic upgrade head && python scripts/seed.py`.
+  3. `uvicorn src.main:app --reload --port 8000`.
+  4. `cd frontend && npm i && npm run dev`.
 - Migrasi baru: `alembic revision --autogenerate -m "..."` lalu `alembic upgrade head`.
+- Scraper (cron harian): `cd scraper && python jkt48scraper.py --members --sync` dsb.
+  Data ditulis ke schema kanonik memakai kolom jembatan `external_id` /
+  `source_id` (migration 003), jadi aman dijalankan berulang.

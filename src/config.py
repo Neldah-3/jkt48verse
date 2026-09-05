@@ -60,10 +60,12 @@ class Settings(BaseSettings):
     AI_SEARCH_DAILY_LIMIT_USER: int = 20
     AI_SEARCH_DAILY_LIMIT_GUEST: int = 3
 
-    # Seed akun admin (dipakai scripts/seed.py)
+    # Seed akun admin/moderator/demo (dipakai scripts/seed.py)
     ADMIN_USERNAME: str = "admin"
     ADMIN_EMAIL: str = "admin@jkt48verse.local"
-    ADMIN_PASSWORD: SecretStr = SecretStr("AdminJKT48verse2026")
+    # Default kosong = seed.py memakai password bawaan terdokumentasi + peringatan.
+    # Di produksi, selalu set via environment dan ganti setelah deploy.
+    ADMIN_PASSWORD: SecretStr = SecretStr("")
 
     LOG_LEVEL: str = "INFO"
     LOG_DESTINATION: str = "console"

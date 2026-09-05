@@ -3,14 +3,12 @@
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import and_, delete, desc, func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_session
-from src.limiter import limiter
 from src.models import (
     ActivityLog, Bookmark, ChatMessage, ChatReaction, Notification,
     Report, ScheduleReminder, User, UserOshi,
@@ -402,12 +400,21 @@ async def reminder_set(
     return {"ids": list(rows)}
 
 
+class ReminderToggleIn(BaseModel):
+    scheduleId: int
+
+
 @router.post("/schedules/reminders/toggle")
 async def toggle_reminder(
-    schedule_id: int,
+    data: ReminderToggleIn,
     viewer: dict = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    schedule_id = data.scheduleId
+    from src.models import Schedule
+
+    if not await session.get(Schedule, schedule_id):
+        return {"ok": False, "error": "Jadwal tidak ditemukan."}
     existing = (
         await session.execute(
             select(ScheduleReminder).where(
@@ -494,7 +501,7 @@ async def update_profile(
     if data.bio is not None:
         user.bio = data.bio[:160]
     if data.avatarSeed is not None:
-        user.avatar_seed = min(6, max(1, data.avatar_seed))
+        user.avatar_seed = min(6, max(1, data.avatarSeed))
     return {"ok": True}
 
 
@@ -604,13 +611,18 @@ async def account_overview(
 
     from src.models import (
         ActivityLog, Bookmark, ChatMessage, Encyclopedia, GameScore,
-        LoginHistory, News, RefreshToken, Schedule, SorterResult, User,
+        LoginHistory, Member, News, RefreshToken, Schedule, SorterResult, User,
     )
 
     user = (
         await session.execute(select(User).where(User.seq == viewer["userId"]))
     ).scalar_one_or_none()
-    uid = user_seq = viewer["userId"]
+    if not user:
+        return {
+            "sessions": [], "loginLogs": [], "activity": [], "bookmarks": [],
+            "gameScores": [], "chat": [], "sorter": [],
+        }
+    user_seq = viewer["userId"]
 
     refresh_rows = (
         await session.execute(

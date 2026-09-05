@@ -1,11 +1,10 @@
 """Live sessions: sync ShowRoom → DB, live now, riwayat."""
 
 import time
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, desc, func, select, update
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_session

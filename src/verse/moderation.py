@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import BannedWord
-from src.database import get_session
 
 EMOJI_WHITELIST = [
     "😃", "😀", "😱", "😎", "😑", "🤫", "🙃", "🤔", "😉", "😊", "😆", "😍", "🥰",

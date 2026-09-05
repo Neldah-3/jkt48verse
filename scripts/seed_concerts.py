@@ -1,12 +1,18 @@
+"""Seed data konser JKT48 ke tabel `concerts` (PostgreSQL, idempoten)."""
+
 import asyncio
 import os
 import sys
+import uuid
+from datetime import datetime
 
 # Add the root directory to PYTHONPATH so we can import from src
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from src.config import config
+from sqlalchemy import select  # noqa: E402
+
+from src.database import database_instance  # noqa: E402
+from src.models import Concert  # noqa: E402
 
 
 CONCERTS_DATA = [
@@ -229,18 +235,43 @@ CONCERTS_DATA = [
     }
 ]
 
+def _parse_dt(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 async def seed_db():
-    print(f"Connecting to MongoDB at {config.mongo_uri}...")
-    client = AsyncIOMotorClient(config.mongo_uri)
-    db = client[config.db_name]
-    
-    collection = db["concerts"]
-    
-    # Optional: Clear existing concerts if you want to rerun this script safely
-    await collection.delete_many({})
-    
-    result = await collection.insert_many(CONCERTS_DATA)
-    print(f"Successfully seeded {len(result.inserted_ids)} concerts into '{config.db_name}.concerts'")
+    print("Menghubungkan ke PostgreSQL...")
+    await database_instance.connect()
+    try:
+        async with database_instance.session_factory() as session:
+            existing = {
+                c.title
+                for c in (await session.execute(select(Concert))).scalars().all()
+            }
+            inserted = 0
+            for row in CONCERTS_DATA:
+                if row["title"] in existing:
+                    continue
+                session.add(
+                    Concert(
+                        id=str(uuid.uuid4()),
+                        title=row["title"],
+                        theme=row.get("theme"),
+                        type=row.get("type", "Anniversary"),
+                        date=_parse_dt(row["date"]),
+                        location=row.get("location", ""),
+                        details=row.get("details", ""),
+                        benefits=row.get("benefits") or [],
+                        ticket_price=row.get("ticket_price") or [],
+                        image=row.get("image", ""),
+                    )
+                )
+                inserted += 1
+            await session.commit()
+            print(f"Selesai: {inserted} konser baru (total data {len(CONCERTS_DATA)}).")
+    finally:
+        await database_instance.close()
+
 
 if __name__ == "__main__":
     asyncio.run(seed_db())

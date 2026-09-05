@@ -1,6 +1,5 @@
 """AI Search endpoints (kuota harian WIB + feedback)."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel

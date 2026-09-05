@@ -3,7 +3,7 @@
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import and_, asc, desc, extract, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from src.models import (
     Schedule, ScheduleMember, Contributor,
 )
 from src.verse import moderation
-from src.verse.deps import get_viewer, require_user
+from src.verse.deps import require_user
 from src.verse.helpers import (
     member_dict, news_dict, now_utc, schedule_dict, wib_midnight, wib_parts,
 )
@@ -303,7 +303,6 @@ async def send_wish(
     viewer: dict = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    from src.models import Notification
     from src.verse.helpers import wish_dict
 
     if viewer["isBlocked"]:
@@ -320,6 +319,9 @@ async def send_wish(
     year = wib_parts()["year"]
     from sqlalchemy.exc import IntegrityError
 
+    member = await session.get(Member, data.memberId)
+    if not member:
+        return {"ok": False, "error": "Member tidak ditemukan."}
     try:
         wish = BirthdayWish(
             member_id=data.memberId,
@@ -372,9 +374,11 @@ async def list_glossary(session: AsyncSession = Depends(get_session)):
 
 @router.get("/motivation/daily")
 async def daily_motivation(session: AsyncSession = Depends(get_session)):
+    from datetime import date as _date
+
     from src.verse.helpers import wib_date_key
 
-    today = wib_date_key()
+    today = _date.fromisoformat(wib_date_key())
     row = (
         await session.execute(
             select(Motivation).where(
