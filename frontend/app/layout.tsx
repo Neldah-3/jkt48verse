@@ -9,6 +9,17 @@ import { listNotifications, ready, unreadCount } from "@/lib/data";
 export const metadata: Metadata = {
   title: { default: "JKT48Verse — Fan-made Platform", template: "%s · JKT48Verse" },
   description: "Platform komunitas penggemar JKT48: live member, jadwal, news, birthday, games, chat, dan AI search. Proyek non-komersial, tidak berafiliasi dengan JKT48 Operation Team.",
+  icons: {
+    icon: [
+      { url: "/jv-favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/jv-favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/jkt48verse-icon.svg", type: "image/svg+xml" },
+      { url: "/jv-icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/jv-icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/jv-apple-icon-180.png", sizes: "180x180", type: "image/png" }],
+  },
+  appleWebApp: { title: "JKT48Verse", statusBarStyle: "default", capable: true },
 };
 export const viewport: Viewport = {
   width: "device-width",
