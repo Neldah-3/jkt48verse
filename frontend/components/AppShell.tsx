@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar, Icon, type IconName } from "@/components/ui";
+import Logo from "@/components/Logo";
 import { logoutAction } from "@/app/actions";
 
 export type ShellViewer = { role: string; username: string; avatarSeed: number; userId: number | null };
@@ -121,7 +122,7 @@ export default function AppShell({ children, viewer, liveCount, unread, notifs, 
       {open && <div className="backdrop" onClick={() => setOpen(false)} />}
       <aside className={`sidebar ${open ? "open" : ""}`}>
         <div className="flex items-center gap-3 px-4 h-[58px] border-b border-border">
-          <span className="brand">jv</span>
+          <Logo size={34} />
           <div className="sb-brand-text leading-tight">
             <div className="font-bold text-[14.5px]">JKT48Verse</div>
             <div className="muted text-[11px]">Fan-made Platform</div>
