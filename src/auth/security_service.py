@@ -111,10 +111,6 @@ class SecurityService:
 
         return token_data["userId"]
 
-    async def increment_failed_login_attempts(self, user_id: str):
-        """Increment failed login attempts count"""
-        await self.user_repo.increment_failed_login_attempts(user_id)
-
     async def reset_failed_login_attempts(self, user_id: str):
         """Reset failed login attempts count"""
         await self.user_repo.reset_failed_login_attempts(user_id)
@@ -145,7 +141,8 @@ class SecurityService:
                 locked_until = locked_until.replace(tzinfo=timezone.utc)
 
             if locked_until < datetime.now(timezone.utc):
-                await self.unlock_account(user_id)
+                # Do not write here: a subsequent failed login uses a separate
+                # transaction. Holding this row's write lock would deadlock it.
                 return {"is_locked": False, "locked_until": None}
 
         return {"is_locked": is_locked, "locked_until": locked_until}
@@ -153,15 +150,10 @@ class SecurityService:
     async def handle_failed_login(self, user_id: str, email: str, username: str):
         """Handle failed login with security measures"""
 
-        await self.increment_failed_login_attempts(user_id)
-
-        user = await self.user_repo.find_one({"userId": user_id})
-        if (
-            user
-            and user.get("failedLoginAttempts", 0) >= self.config.max_login_attempts
-        ):
-            await self.lock_account(user_id, self.config.account_lockout_minutes)
-
+        attempts = await self.user_repo.record_failed_login(
+            user_id, self.config.max_login_attempts, self.config.account_lockout_minutes
+        )
+        if attempts == self.config.max_login_attempts:
             self.background_tasks.add_task(
                 self.email_service.send_account_locked_notification,
                 email,

@@ -15,8 +15,6 @@ from src.auth.csrf_service import CSRFService
 from src.auth.exceptions import (
     InvalidRefreshTokenError,
     PasswordResetTokenInvalidError,
-    RefreshTokenExpiredError,
-    SuspiciousActivityError,
     VerificationTokenInvalidError,
 )
 from src.auth.http_exceptions import EmailNotFoundOrVerified
@@ -148,50 +146,56 @@ async def signin_with_email_and_password(
     gate = staff_credentials.gate_login(user.username, user.email, access_code)
     if gate is not None:
         status_code = 403 if gate.code == "SLOT_INCOMPLETE" else 401
-        logger.warning(f"[staff] login ditolak untuk '{user.username}' ({gate.code}): {gate.message}")
+        logger.warning(
+            f"[staff] login ditolak untuk '{user.username}' ({gate.code}): {gate.message}"
+        )
         if gate.code != "SLOT_INCOMPLETE":
             # hitung sebagai percobaan gagal (maks MAX_LOGIN_ATTEMPTS)
-            try:
-                await auth_service.security_service.handle_failed_login(
-                    user.userId, user.email, user.username
-                )
-            except Exception as exc:  # jangan sampai gagal login malah 500
-                logger.warning(f"handle_failed_login error: {exc}")
+            await auth_service.security_service.handle_failed_login(
+                user.userId, user.email, user.username
+            )
         raise HTTPException(status_code=status_code, detail=gate.message)
 
+    if (
+        user.provider == staff_credentials.PROVIDER
+        and not staff_credentials.find_credential(user.username, user.email)
+    ):
+        raise HTTPException(status_code=403, detail="Akun staff sudah dinonaktifkan.")
+
     # Blokir khusus JKT48Verse (sanksi moderator/admin)
-    from sqlalchemy import func as sa_func, or_ as sa_or_, select as sa_select
+    from sqlalchemy import select as sa_select
 
     from src.database import database_instance
     from src.models import User as _UserModel
 
-    _ident = form_data.username.lower()
     async with database_instance.session_factory() as _s:
         _row = (
             await _s.execute(
-                sa_select(_UserModel).where(
-                    sa_or_(
-                        sa_func.lower(_UserModel.username) == _ident,
-                        sa_func.lower(_UserModel.email) == _ident,
-                        _UserModel.user_id == _ident,
-                    )
-                )
+                sa_select(_UserModel).where(_UserModel.user_id == user.userId)
             )
         ).scalar_one_or_none()
-    if _row is not None and _row.blocked_until and _row.blocked_until > datetime.now(timezone.utc):
+    if (
+        _row is not None
+        and _row.blocked_until
+        and _row.blocked_until > datetime.now(timezone.utc)
+    ):
         _until = _row.blocked_until.astimezone(
             timezone(offset=__import__("datetime").timedelta(hours=7))
         ).strftime("%d %b %Y %H:%M")
         return JSONResponse(
             status_code=403,
-            content={"detail": f"Akun diblokir hingga {_until} WIB. Alasan: {_row.block_reason or '-'}"},
+            content={
+                "detail": f"Akun diblokir hingga {_until} WIB. Alasan: {_row.block_reason or '-'}"
+            },
         )
 
-    access_token = auth_service.create_access_token(data={"sub": user.userId})
-
+    await auth_service.complete_login(user.userId)
     device, ip, browser, user_agent = _extract_request_info(request)
     refresh_token = await auth_service.register_refresh_token_activity(
         user.userId, device, ip, browser, user_agent
+    )
+    access_token = auth_service.create_access_token(
+        data={"sub": user.userId, "sid": auth_service.hash_token(refresh_token)}
     )
 
     _set_auth_cookies(response, refresh_token, config)
@@ -229,6 +233,17 @@ async def refresh_access_token(
         logger.warning("Token data not found")
         raise InvalidRefreshTokenError()
 
+    if (
+        await auth_service.get_session_user(token_data["userId"], hash_refresh_token)
+        is None
+    ):
+        await auth_service.delete_refresh_token(hash_refresh_token)
+        # Return, rather than raise, so revocation is committed by get_session.
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Sesi sudah tidak berlaku. Silakan login kembali."},
+        )
+
     device, ip, browser, user_agent = _extract_request_info(request)
 
     # Check for mismatches but be lenient with IP changes
@@ -243,7 +258,10 @@ async def refresh_access_token(
             f"Security mismatch detected for user_id={token_data.get('userId')}: {', '.join(mismatches)}"
         )
         await auth_service.delete_refresh_token(hash_refresh_token)
-        raise SuspiciousActivityError()
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Perangkat sesi tidak cocok. Silakan login kembali."},
+        )
 
     # Log IP change but don't invalidate session
     if token_data["ip"] != ip:
@@ -258,7 +276,10 @@ async def refresh_access_token(
     age_days = (datetime.now(timezone.utc) - created_at).days
     if age_days >= config.refresh_token_max_age_days:
         await auth_service.delete_refresh_token(hash_refresh_token)
-        raise RefreshTokenExpiredError()
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Sesi kedaluwarsa. Silakan login kembali."},
+        )
 
     threshold_days = 7
     should_rotate = age_days >= (config.refresh_token_max_age_days - threshold_days)
@@ -279,7 +300,12 @@ async def refresh_access_token(
             user_agent_raw=user_agent,
         )
 
-    access_token = auth_service.create_access_token(data={"sub": token_data["userId"]})
+    access_token = auth_service.create_access_token(
+        data={
+            "sub": token_data["userId"],
+            "sid": auth_service.hash_token(refresh_token),
+        }
+    )
     _set_access_token_cookie(response, access_token, config)
 
     return {"access_token": access_token, "token_type": "bearer"}
@@ -323,36 +349,39 @@ async def logout(
     return LogoutResponse(message=Info.LOGOUT_SUCCESS)
 
 
-
 # ---- JKT48Verse: viewer saat ini (dipakai frontend Next.js) ----
 @router.get("/auth/me")
 async def current_viewer(
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
 ):
+    from src.auth.exceptions import InvalidJWTTokenError
     from src.verse.deps import build_viewer, GUEST_VIEWER
-    from src.database import database_instance
 
     token = request.cookies.get("token")
     if not token:
-        header = request.headers.get("authorization")
-        if header and header.lower().startswith("bearer "):
+        header = request.headers.get("authorization", "")
+        if header.lower().startswith("bearer "):
             token = header.split(" ", 1)[1]
-    if not token:
+    if not token and not request.cookies.get("refresh_token"):
         return dict(GUEST_VIEWER)
-    try:
-        token_data = auth_service.verify_access_token(token)
-    except Exception:
-        return dict(GUEST_VIEWER)
-    from sqlalchemy import select
-    from src.models import User
-
-    async with database_instance.session_factory() as session:
-        result = await session.execute(select(User).where(User.user_id == token_data.username))
-        user = result.scalar_one_or_none()
-        if user is None:
-            return dict(GUEST_VIEWER)
-        return build_viewer(user)
+    if token:
+        try:
+            token_data = auth_service.verify_access_token(token)
+        except InvalidJWTTokenError:
+            pass
+        else:
+            user = await auth_service.get_session_user(
+                token_data.username, token_data.session_id
+            )
+            if user is not None:
+                return build_viewer(user)
+    return JSONResponse(
+        status_code=401,
+        content={
+            "detail": "Sesi sudah tidak berlaku. Silakan perbarui sesi atau login kembali."
+        },
+    )
 
 
 class OtpVerifyRequest(BaseModel):
@@ -367,10 +396,14 @@ async def verify_otp_endpoint(
     config: Settings = Depends(get_settings),
 ):
     """Verifikasi email memakai kode OTP 6 digit."""
-    success, message = await auth_service.verify_email_otp(request_data.email, request_data.code)
+    success, message = await auth_service.verify_email_otp(
+        request_data.email, request_data.code
+    )
     if success:
         return {"message": message, "verified": True}
-    return JSONResponse(status_code=400, content={"message": message, "verified": False})
+    return JSONResponse(
+        status_code=400, content={"message": message, "verified": False}
+    )
 
 
 class OtpResendRequest(BaseModel):
@@ -387,7 +420,9 @@ async def resend_otp_endpoint(
 ):
     """Kirim ulang kode OTP verifikasi email."""
     result = await auth_service.resend_email_otp(request_data.email)
-    payload: dict = {"message": "Jika email terdaftar dan belum terverifikasi, kode OTP telah dikirim."}
+    payload: dict = {
+        "message": "Jika email terdaftar dan belum terverifikasi, kode OTP telah dikirim."
+    }
     if isinstance(result, dict) and result.get("devCode"):
         payload["devCode"] = result["devCode"]
     return payload

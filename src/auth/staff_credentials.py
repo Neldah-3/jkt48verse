@@ -20,8 +20,8 @@ Contoh .env yang valid untuk satu admin::
     ADMIN_1_PASSWORD=Ra#hasia123
     ADMIN_1_ACCESS_CODE=JKT48-Admin-01
 
-Nilai dibaca mentah dari ``os.environ`` (bukan lewat pydantic) supaya tidak
-ada satu karakter pun yang berubah di tengah jalan.
+Nilai dibaca dari ``.env`` dan ``os.environ`` (environment memiliki prioritas),
+tanpa strip/lowercase agar kredensial dicocokkan persis.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ import hmac
 import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+from dotenv import dotenv_values
 
 from src.logging_config import create_logger
 
@@ -72,9 +74,9 @@ def equals(a: str, b: str) -> bool:
         return a == b
 
 
-def _raw(role: str, slot: int, name: str) -> str:
-    """Ambil nilai env **mentah** (tanpa strip/lower)."""
-    return os.environ.get(f"{ROLE_PREFIX[role]}_{slot}_{name}", "")
+def _raw(role: str, slot: int, name: str, env: dict) -> str:
+    """Read exact values; exported environment takes precedence over .env."""
+    return env.get(f"{ROLE_PREFIX[role]}_{slot}_{name}") or ""
 
 
 def mask_secret(value: str) -> str:
@@ -212,6 +214,7 @@ _REGISTRY: Optional[_Registry] = None
 
 
 def _build() -> _Registry:
+    env = {**dotenv_values(".env"), **os.environ}
     creds: list[StaffCredential] = []
     slots: list[SlotStatus] = []
     defined: list[SlotStatus] = []
@@ -220,12 +223,18 @@ def _build() -> _Registry:
 
     for role, count in ROLE_SLOTS:
         for slot in range(1, count + 1):
-            values = {name: _raw(role, slot, name) for name in REQUIRED_FIELDS}
+            values = {name: _raw(role, slot, name, env) for name in REQUIRED_FIELDS}
 
             if not any(values.values()):
                 # tidak dipakai sama sekali = false, tanpa peringatan
                 slots.append(
-                    SlotStatus(role, slot, active=False, defined=False, reason="kosong (tidak dipakai)")
+                    SlotStatus(
+                        role,
+                        slot,
+                        active=False,
+                        defined=False,
+                        reason="kosong (tidak dipakai)",
+                    )
                 )
                 continue
 
@@ -271,7 +280,9 @@ def _build() -> _Registry:
                 )
                 slots.append(status)
                 defined.append(status)
-                logger.warning(f"[staff] {status.label} NONAKTIF (false) — {status.reason}.")
+                logger.warning(
+                    f"[staff] {status.label} NONAKTIF (false) — {status.reason}."
+                )
                 continue
 
             seen_username[username] = f"{ROLE_PREFIX[role]}_{slot}"
@@ -287,7 +298,13 @@ def _build() -> _Registry:
             )
             creds.append(cred)
             status = SlotStatus(
-                role, slot, active=True, defined=True, username=username, email=email, reason="lengkap"
+                role,
+                slot,
+                active=True,
+                defined=True,
+                username=username,
+                email=email,
+                reason="lengkap",
             )
             slots.append(status)
             defined.append(status)
@@ -353,7 +370,9 @@ def slot_count(role: str) -> int:
     return ADMIN_SLOT_COUNT if role == ADMIN_ROLE else MODERATOR_SLOT_COUNT
 
 
-def gate_login(username: str, email: str, access_code: Optional[str]) -> Optional[GateResult]:
+def gate_login(
+    username: str, email: str, access_code: Optional[str]
+) -> Optional[GateResult]:
     """Gerbang login untuk akun staff.
 
     Dipanggil **setelah** password benar, dengan username/email yang tersimpan

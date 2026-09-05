@@ -74,8 +74,15 @@ class FakeAuthService:
                 "userId": "u-1",
                 "username": STAFF["USERNAME"],
                 "email": STAFF["EMAIL"],
+                "provider": sc.PROVIDER,
             },
         )()
+
+    async def complete_login(self, user_id):
+        return None
+
+    def hash_token(self, token):
+        return "hashed-refresh-token"
 
     def create_access_token(self, data):
         return "access-token-abc"
@@ -89,7 +96,7 @@ def client(monkeypatch):
     for role, count in sc.ROLE_SLOTS:
         for slot in range(1, count + 1):
             for field in sc.REQUIRED_FIELDS:
-                monkeypatch.delenv(f"{sc.ROLE_PREFIX[role]}_{slot}_{field}", raising=False)
+                monkeypatch.setenv(f"{sc.ROLE_PREFIX[role]}_{slot}_{field}", "")
     for key, value in STAFF.items():
         monkeypatch.setenv(f"ADMIN_1_{key}", value)
     sc.reload()
@@ -109,7 +116,11 @@ def test_login_staff_tanpa_code_akses_ditolak(client):
     c, _ = client
     res = c.post(
         "/api/auth/signin",
-        data={"username": STAFF["USERNAME"], "password": STAFF["PASSWORD"], "access_code": ""},
+        data={
+            "username": STAFF["USERNAME"],
+            "password": STAFF["PASSWORD"],
+            "access_code": "",
+        },
     )
     assert res.status_code == 401
     assert "code akses" in res.json()["detail"].lower()
@@ -145,7 +156,7 @@ def test_login_staff_code_benar_berhasil(client):
 
 def test_slot_tidak_lengkap_tidak_bisa_login(client, monkeypatch):
     c, _ = client
-    monkeypatch.delenv("ADMIN_1_ACCESS_CODE")
+    monkeypatch.setenv("ADMIN_1_ACCESS_CODE", "")
     sc.reload()
     res = c.post(
         "/api/auth/signin",

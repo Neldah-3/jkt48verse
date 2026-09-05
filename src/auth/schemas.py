@@ -77,6 +77,8 @@ class UserLoginBase(BaseModel):
 
 
 class UserLogin(UserLoginBase):
+    provider: Optional[str] = None
+    role: str = "MEMBER"
     password: Optional[str] = None
     failedLoginAttempts: int = 0
     isAccountLocked: bool = False
@@ -93,7 +95,8 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    username: str | None = None
+    username: str
+    session_id: str
 
 
 class RefreshTokenData(BaseModel):

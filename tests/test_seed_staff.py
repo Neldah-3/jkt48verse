@@ -49,7 +49,7 @@ def _clean_env(monkeypatch):
     for role, count in sc.ROLE_SLOTS:
         for slot in range(1, count + 1):
             for field in sc.REQUIRED_FIELDS:
-                monkeypatch.delenv(f"{sc.ROLE_PREFIX[role]}_{slot}_{field}", raising=False)
+                monkeypatch.setenv(f"{sc.ROLE_PREFIX[role]}_{slot}_{field}", "")
     sc.reload()
     yield
     sc.reload()

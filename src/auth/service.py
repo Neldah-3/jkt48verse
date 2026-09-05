@@ -5,6 +5,7 @@ from typing import Dict, Optional, Union
 
 from jose import JWTError, jwt
 
+from src.auth import staff_credentials
 from src.auth.email_service import EmailService
 from src.auth.exceptions import (
     AuthOperationError,
@@ -16,6 +17,7 @@ from src.auth.schemas import TokenData, UserLogin
 from src.auth.security_service import SecurityService
 from src.config import Settings
 from src.logging_config import create_logger
+from src.models import User
 from src.users.exceptions import AccountLocked, EmailNotVerified
 from src.users.repository import UserRepository
 from src.utils import hash_token
@@ -81,19 +83,21 @@ class AuthService:
             payload = jwt.decode(
                 token, self.config.secret_key, algorithms=[self.config.algorithm]
             )
-            username: str = payload.get("sub")
-            if username is None:
-                logger.warning("Token does not contain sub/username")
+            username = payload.get("sub")
+            session_id = payload.get("sid")
+            if (
+                not isinstance(username, str)
+                or not isinstance(session_id, str)
+                or not session_id
+            ):
                 raise InvalidJWTTokenError()
-            token_data = TokenData(username=username)
-            return token_data
+            return TokenData(username=username, session_id=session_id)
         except JWTError as e:
-            logger.exception(f"JWTError: {str(e)}")
+            logger.info(f"Access token rejected: {str(e)}")
             raise InvalidJWTTokenError()
 
     async def get_user(self, username_or_email: str) -> Optional[UserLogin]:
         try:
-            username_or_email = username_or_email.lower()
             query = {
                 "$or": [
                     {"username": username_or_email},
@@ -147,14 +151,50 @@ class AuthService:
             )
             raise IncorrectCredentialsError()
 
+        if not self.config.is_env_dev and user.provider == "seed":
+            raise IncorrectCredentialsError()
         if not user.isEmailVerified:
             raise EmailNotVerified()
 
-        if user.failedLoginAttempts > 0:
-            await self.security_service.reset_failed_login_attempts(user.userId)
+        # Do not reset counters yet: the staff access-code gate must also pass.
+        return user
 
-        await self.user_repo.update_last_active(user.userId)
+    async def complete_login(self, user_id: str) -> None:
+        await self.security_service.unlock_account(user_id)
+        await self.user_repo.update_last_active(user_id)
 
+    async def get_session_user(self, user_id: str, session_id: str) -> Optional[User]:
+        """Every access token is bound to a revocable, server-side session.
+
+        Missing sid (pre-upgrade JWTs), deleted sessions, disabled staff and bans
+        must never confer authorization, even when the JWT has not expired yet.
+        """
+        token = await self.auth_repo.find_refresh_token(session_id)
+        if not token or token["userId"] != user_id:
+            return None
+        now = datetime.now(timezone.utc)
+        created_at = token["createdAt"]
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if now >= created_at + timedelta(days=self.config.refresh_token_max_age_days):
+            return None
+        user = await self.user_repo.find_model_by_id(user_id)
+        if user is None or not user.is_email_verified:
+            return None
+        if user.blocked_until and user.blocked_until > now:
+            return None
+        if not self.config.is_env_dev and user.provider == "seed":
+            return None
+        if user.provider == staff_credentials.PROVIDER:
+            cred = staff_credentials.find_credential(user.username, user.email)
+            if (
+                not user.password
+                or cred is None
+                or cred.username != user.username
+                or cred.email != user.email
+                or cred.role != user.role
+            ):
+                return None
         return user
 
     def extract_user_provider(self, user) -> Dict[str, str]:
@@ -326,6 +366,7 @@ class AuthService:
                 {"$set": {"password": hashed_password}},
             )
 
+            await self.auth_repo.delete_user_refresh_tokens(token_data["userId"])
             await self.security_service.delete_token(token_hash, "password_reset")
 
             user = await self.user_repo.find_one({"userId": token_data["userId"]})
