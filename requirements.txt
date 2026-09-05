@@ -1,0 +1,3 @@
+# Entry point untuk installer produksi (dipakai juga build default Render:
+# `pip install -r requirements.txt`). Konten sebenarnya di requirements/.
+-r requirements/prod.txt
